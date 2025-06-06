@@ -1,0 +1,1484 @@
+---
+title: "Chemicals In Our Body: PBDEs Mixture and Oxidative Stress"
+author: "Neha Sehgal"
+date: "2023-06-03"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library('haven')
+library('table1')
+library('tidyverse')
+library('Hmisc')
+library('ggplot2')
+library('mice')
+library('survival')
+library('splines')
+library('ggcorrplot')
+library('corrplot')
+library('EnvStats')
+library('gridExtra')
+library(dotwhisker)
+library(broom)
+library(dplyr)
+library(ggpubr)
+library('irrICC')
+
+library("vimp")
+library("SuperLearner")
+library("glmnet")
+library("gbm")
+library("miceadds")
+library("tibble")
+library("forcats")
+library("sjPlot")
+library(rsample)
+library(randomForest)
+library('caret')
+library("coda")
+library(readxl)
+library(cowplot)
+
+# NS specific libraries
+library(naniar)
+library(DataExplorer)
+library(viridis)
+library(stringr)
+library(pander)
+library(patchwork)
+library(kableExtra)
+
+    # methods
+library(qgcomp)
+library(bkmr)
+library("bkmrhat")
+
+```
+
+## 0 Introduction
+This is the final R code that was used to obtain all the main reuslts, tables and figures for the manuscript: Sehgal et al (2024) doi: https://doi.org/10.1093/aje/kwae113
+ 
+## 1 Data Import
+The imported exposure and covariate data has been recoded and cleaned as needed. The
+imported outcome data includes concentrations as obtained from the lab and is also, imputed as defined the manuscript.
+``` {r data_import}
+#load("oxi_pbde_covars_update_06032023.Rda")
+```
+
+## 2 Sociodemographics of CiOB
+The following code produced: 
+- Table 1. Distribution of demographic characteristics in the Chemicals in Our Bodies cohort, 2014-2018.  
+- Table 2. Distributions of second trimester serum levels of polybrominated diphenyl ethers (ng/g lipid) and second and third trimester urinary oxidative stress biomarkers corrected with specific gravity (ng/mL) in Chemicals in Our Bodies cohort, 2014-2018. 
+
+```{r table_1_2 }
+######## Univariate Analysis ########
+plot_histogram(oxi_pbde_covars)  ## Oxi stress data and BDEs data are right skewed. So, normalize PBDEs using ln().
+
+######## Descriptive Statistics ########
+ table1.cont <- function(x) {
+   with(stats.apply.rounding(stats.default(x), digits=2), c("",
+                                                            "Mean (SD)"=sprintf("%s (%s)", MEAN, SD)))
+ }
+
+ table1.cat <- function(x) {
+   c("", sapply(stats.default(x), function(y) with(y,
+                                                   sprintf("%d (%0.0f %%)", FREQ, PCT))))
+ }
+
+    ## Table 1. Cohort Descriptive Stats (CIOB, 2014-2018)
+table1 ( ~ sex + marital + mat_educ + parity + mat_race_eth + mat_age + foreign + ppbmi + smoke + employ + econ_cat| hospital,
+   overall = "N (%) or Mean (SD)",
+   render.continuous = table1.cont,
+   render.categorical = tabe1.cat,
+   data = oxi_pbde_covars)
+
+
+##Table 2. PBDEs Exposure and Oxidative Stress Descriptive Stats (CIOB, 2014-2018)
+oxi_pbde_covars_allcomplete<- oxi_pbde_covars %>% drop_na(c("parity", "mat_age", "ppbmi", "mat_educ", "hospital",
+                                                            "lnBDE47" ,  "lnBDE99" ,  "lnBDE100" , "lnBDE153",
+                                                            "ln8iso_avg", "ln8isom_avg", "ln8isom_new_avg", "ln8iso_chem_avg","ln8iso_enz_avg","lnpgf_avg"))  
+# OPTION 1.
+dist.table_2<-function(oxi_pbde_covars_allcomplete){
+
+  table_2<-NULL
+
+  iso_sg_avg<-rbind(table_2, cbind(
+    "Averaged specific gravity corrected 8-iso-PGF2a across study visits (ng/mL)",
+    NROW(na.omit(oxi_pbde_covars_allcomplete$iso_sg_avg)),
+    "--",
+    "--",
+    (round(exp(mean(log(as.numeric(oxi_pbde_covars_allcomplete$iso_sg_avg)),na.rm=T)),2)),
+    (round(exp(sd(log(as.numeric(oxi_pbde_covars_allcomplete$iso_sg_avg)),na.rm=T)),2)),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$iso_sg_avg),0.05),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$iso_sg_avg),0.25),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$iso_sg_avg),0.50),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$iso_sg_avg),0.75),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$iso_sg_avg),0.95),2)))
+
+  isom_sg_avg<-rbind(table_2, cbind(
+    "Averaged specific gravity corrected 8-iso-PGF2a metabolite (2,3-dinor-5,6-dihydro-8-iso-PGF2α) across study visits (ng/mL)",
+    NROW(na.omit(oxi_pbde_covars_allcomplete$isom_sg_avg)),
+    "--",
+    "--",
+    (round(exp(mean(log(as.numeric(oxi_pbde_covars_allcomplete$isom_sg_avg)),na.rm=T)),2)),
+    (round(exp(sd(log(as.numeric(oxi_pbde_covars_allcomplete$isom_sg_avg)),na.rm=T)),2)),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$isom_sg_avg),0.05),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$isom_sg_avg),0.25),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$isom_sg_avg),0.50),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$isom_sg_avg),0.75),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$isom_sg_avg),0.95),2)))
+
+
+  isom_new_sg_avg<-rbind(table_2, cbind(
+    "Averaged specific gravity corrected 8-iso-PGF2a metabolite (2,3-dinor-8-iso-PGF2α) across study visits (ng/mL)",
+    NROW(na.omit(oxi_pbde_covars_allcomplete$isom_new_sg_avg)),
+    "--",
+    "--",
+    (round(exp(mean(log(as.numeric(oxi_pbde_covars_allcomplete$isom_new_sg_avg)),na.rm=T)),2)),
+    (round(exp(sd(log(as.numeric(oxi_pbde_covars_allcomplete$isom_new_sg_avg)),na.rm=T)),2)),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$isom_new_sg_avg),0.05),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$isom_new_sg_avg),0.25),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$isom_new_sg_avg),0.50),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$isom_new_sg_avg),0.75),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$isom_new_sg_avg),0.95),2)))
+
+  pgf_sg_avg<-rbind(table_2, cbind(
+    "Averaged specific gravity corrected PGF-2a across study visits (ng/mL)",
+    NROW(na.omit(oxi_pbde_covars_allcomplete$pgf_sg_avg)),
+    "--",
+    "--",
+    (round(exp(mean(log(as.numeric(oxi_pbde_covars_allcomplete$pgf_sg_avg)),na.rm=T)),2)),
+    (round(exp(sd(log(as.numeric(oxi_pbde_covars_allcomplete$pgf_sg_avg)),na.rm=T)),2)),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$pgf_sg_avg),0.05),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$pgf_sg_avg),0.25),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$pgf_sg_avg),0.50),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$pgf_sg_avg),0.75),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$pgf_sg_avg),0.95),2)))
+
+  iso_chem_sg_avg<-rbind(table_2, cbind(
+    "Averaged specific gravity corrected 8-iso-PGF2a chemical fraction across study visits (ng/mL)",
+    NROW(na.omit(oxi_pbde_covars_allcomplete$iso_chem_sg_avg)),
+    "--",
+    "--",
+    (round(exp(mean(log(as.numeric(oxi_pbde_covars_allcomplete$iso_chem_sg_avg)),na.rm=T)),2)),
+    (round(exp(sd(log(as.numeric(oxi_pbde_covars_allcomplete$iso_chem_sg_avg)),na.rm=T)),2)),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$iso_chem_sg_avg),0.05),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$iso_chem_sg_avg),0.25),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$iso_chem_sg_avg),0.50),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$iso_chem_sg_avg),0.75),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$iso_chem_sg_avg),0.95),2)))
+
+  iso_enz_sg_avg<-rbind(table_2, cbind(
+    "Averaged specific gravity corrected 8-iso-PGF2a enzymatic fraction across study visits (ng/mL)",
+    NROW(na.omit(oxi_pbde_covars_allcomplete$iso_enz_sg_avg)),
+    "--",
+    "--",
+    (round(exp(mean(log(as.numeric(oxi_pbde_covars_allcomplete$iso_enz_sg_avg)),na.rm=T)),2)),
+    (round(exp(sd(log(as.numeric(oxi_pbde_covars_allcomplete$iso_enz_sg_avg)),na.rm=T)),2)),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$iso_enz_sg_avg),0.05),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$iso_enz_sg_avg),0.25),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$iso_enz_sg_avg),0.50),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$iso_enz_sg_avg),0.75),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$iso_enz_sg_avg),0.95),2)))
+
+  BDE47<-rbind(table_2, cbind(
+    "BDE-47 (ng/g lipid)",
+    NROW(na.omit(oxi_pbde_covars_allcomplete$BDE47_no_MDL_lip)),
+    round((sum(!is.na(oxi_pbde_covars_allcomplete$lipBDE47_num))/nrow(oxi_pbde_covars_allcomplete))*100,2),
+    round((sum(!is.na(oxi_pbde_covars_allcomplete$lipBDE47_num_no_MDL))/nrow(oxi_pbde_covars_allcomplete))*100,2),
+    (round(exp(mean(log(as.numeric(oxi_pbde_covars_allcomplete$BDE47_no_MDL_lip)),na.rm=T)),2)),
+    (round(exp(sd(log(as.numeric(oxi_pbde_covars_allcomplete$BDE47_no_MDL_lip)),na.rm=T)),2)),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$BDE47_no_MDL_lip),0.05),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$BDE47_no_MDL_lip),0.25),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$BDE47_no_MDL_lip),0.50),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$BDE47_no_MDL_lip),0.75),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$BDE47_no_MDL_lip),0.95),2)))
+
+  BDE99<-rbind(table_2, cbind(
+    "BDE-99 (ng/g lipid)",
+    NROW(na.omit(oxi_pbde_covars_allcomplete$BDE99_no_MDL_lip)),
+    round((sum(!is.na(oxi_pbde_covars_allcomplete$lipBDE99_num))/nrow(oxi_pbde_covars_allcomplete))*100,2),
+    round((sum(!is.na(oxi_pbde_covars_allcomplete$lipBDE99_num_no_MDL))/nrow(oxi_pbde_covars_allcomplete))*100,2),
+    (round(exp(mean(log(as.numeric(oxi_pbde_covars_allcomplete$BDE99_no_MDL_lip)),na.rm=T)),2)),
+    (round(exp(sd(log(as.numeric(oxi_pbde_covars_allcomplete$BDE99_no_MDL_lip)),na.rm=T)),2)),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$BDE99_no_MDL_lip),0.05),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$BDE99_no_MDL_lip),0.25),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$BDE99_no_MDL_lip),0.50),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$BDE99_no_MDL_lip),0.75),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$BDE99_no_MDL_lip),0.95),2)))
+
+  BDE100<-rbind(table_2, cbind(
+    "BDE-100 (ng/g lipid)",
+    NROW(na.omit(oxi_pbde_covars_allcomplete$BDE100_no_MDL_lip)),
+    round((sum(!is.na(oxi_pbde_covars_allcomplete$lipBDE100_num))/nrow(oxi_pbde_covars_allcomplete))*100,2),
+    round((sum(!is.na(oxi_pbde_covars_allcomplete$lipBDE100_num_no_MDL))/nrow(oxi_pbde_covars_allcomplete))*100,2),
+    (round(exp(mean(log(as.numeric(oxi_pbde_covars_allcomplete$BDE100_no_MDL_lip)),na.rm=T)),2)),
+    (round(exp(sd(log(as.numeric(oxi_pbde_covars_allcomplete$BDE100_no_MDL_lip)),na.rm=T)),2)),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$BDE100_no_MDL_lip),0.05),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$BDE100_no_MDL_lip),0.25),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$BDE100_no_MDL_lip),0.50),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$BDE100_no_MDL_lip),0.75),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$BDE100_no_MDL_lip),0.95),2)))
+
+  BDE153<-rbind(table_2, cbind(
+    "BDE-153 (ng/g lipid)",
+    NROW(na.omit(oxi_pbde_covars_allcomplete$BDE153_no_MDL_lip)),
+    round((sum(!is.na(oxi_pbde_covars_allcomplete$lipBDE153_num))/nrow(oxi_pbde_covars_allcomplete))*100,2),
+    round((sum(!is.na(oxi_pbde_covars_allcomplete$lipBDE153_num_no_MDL))/nrow(oxi_pbde_covars_allcomplete))*100,2),
+    (round(exp(mean(log(as.numeric(oxi_pbde_covars_allcomplete$BDE153_no_MDL_lip)),na.rm=T)),2)),
+    (round(exp(sd(log(as.numeric(oxi_pbde_covars_allcomplete$BDE153_no_MDL_lip)),na.rm=T)),2)),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$BDE153_no_MDL_lip),0.05),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$BDE153_no_MDL_lip),0.25),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$BDE153_no_MDL_lip),0.50),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$BDE153_no_MDL_lip),0.75),2),
+    round(quantile(na.omit(oxi_pbde_covars_allcomplete$BDE153_no_MDL_lip),0.95),2)))
+
+  table_2<-rbind(iso_sg_avg, isom_sg_avg, isom_new_sg_avg, pgf_sg_avg, iso_chem_sg_avg, iso_enz_sg_avg, BDE47, BDE99, BDE100, BDE153)
+  colnames(table_2)<-c("   ", "N","% Above MDL", "% Machine Readable",  "Geo Mean", "Geo SD",
+                     "5%", "25%", "50%", "75%", "95%")
+  rownames(table_2)<-NULL
+  View(table_2)
+}
+ # run after running the formula above separately
+table_2<- as.data.frame(table_2)
+
+#OPTION 2.
+label(oxi_pbde_covars$iso_sg_avg)<-"8-iso-PGF2a (ng/mL)"
+label(oxi_pbde_covars$isom_sg_avg)<-  "8-iso-PGF2a metabolite (2,3-dinor-5,6-dihydro-8-iso-PGF2α) (ng/mL)"
+label(oxi_pbde_covars$isom_new_sg_avg)<- "8-iso-PGF2a metabolite (2,3-dinor-8-iso-PGF2α) (ng/mL)"
+label(oxi_pbde_covars$pgf_sg_avg)<-"PGF-2a (ng/mL)"
+label(oxi_pbde_covars$iso_chem_sg_avg)<-"8-iso-PGF2a chemical fraction (ng/mL)"
+label(oxi_pbde_covars$iso_enz_sg_avg)<-"8-iso-PGF2a enzymatic fraction (ng/mL)"
+label(oxi_pbde_covars$BDE47_no_MDL_lip)<-"BDE-47 (ng/g lipid)"
+label(oxi_pbde_covars$BDE99_no_MDL_lip)<-"BDE-99 (ng/g lipid)"
+label(oxi_pbde_covars$BDE100_no_MDL_lip)<-"BDE-100 (ng/g lipid)"
+label(oxi_pbde_covars$BDE153_no_MDL_lip)<-"BDE-153 (ng/g lipid)"
+
+table1 (~ BDE47_no_MDL_lip + BDE99_no_MDL_lip + BDE100_no_MDL_lip + BDE153_no_MDL_lip
+          + iso_sg_avg + isom_sg_avg + isom_new_sg_avg + pgf_sg_avg + iso_chem_sg_avg + iso_enz_sg_avg | hospital,
+          render.continuous=c("Geo. mean (Geo. CV%)"="GMEAN (GCV%)",  .="Median [Min, Max]"),
+          data=oxi_pbde_covars, footnote="All oxidative stress biomarkers are averaged across study visits and specific gravity corrected")
+
+# visit specific analysis
+## visit 2
+label(oxi_pbde_covars_visit2$iso.sg)<-"8-iso-PGF2α (ng/mL)"
+label(oxi_pbde_covars_visit2$isom.sg)<-  "8-iso-PGF2a metabolite (2,3-dinor-5,6-dihydro-8-iso-PGF2α) (ng/mL)"
+label(oxi_pbde_covars_visit2$isom.new.sg)<- "8-iso-PGF2a metabolite (2,3-dinor-8-iso-PGF2α) (ng/mL)"
+label(oxi_pbde_covars_visit2$pgf.sg)<-"PGF-2α (ng/mL)"
+label(oxi_pbde_covars_visit2$iso.chem.sg)<-"8-iso-PGF2α chemical fraction (ng/mL)"
+label(oxi_pbde_covars_visit2$iso.enz.sg)<-"8-iso-PGF2α enzymatic fraction (ng/mL)"
+label(oxi_pbde_covars_visit2$BDE47_no_MDL_lip)<-"BDE-47 (ng/g lipid)"
+label(oxi_pbde_covars_visit2$BDE99_no_MDL_lip)<-"BDE-99 (ng/g lipid)"
+label(oxi_pbde_covars_visit2$BDE100_no_MDL_lip)<-"BDE-100 (ng/g lipid)"
+label(oxi_pbde_covars_visit2$BDE153_no_MDL_lip)<-"BDE-153 (ng/g lipid)"
+
+# option 1
+dist.table_2v2<-function(oxi_pbde_covars_v2_complete){
+
+  table_2v2<-NULL
+
+  iso_sg_avg<-rbind(table_2v2, cbind(
+    "Averaged specific gravity corrected 8-iso-PGF2a across study visits (ng/mL)",
+    NROW(na.omit(oxi_pbde_covars_v2_complete$iso.sg)),
+    "--",
+    "--",
+    (round(exp(mean(log(as.numeric(oxi_pbde_covars_v2_complete$iso.sg)),na.rm=T)),2)),
+    (round(exp(sd(log(as.numeric(oxi_pbde_covars_v2_complete$iso.sg)),na.rm=T)),2)),
+    round(quantile(na.omit(oxi_pbde_covars_v2_complete$iso.sg),0.05),2),
+    round(quantile(na.omit(oxi_pbde_covars_v2_complete$iso.sg),0.25),2),
+    round(quantile(na.omit(oxi_pbde_covars_v2_complete$iso.sg),0.50),2),
+    round(quantile(na.omit(oxi_pbde_covars_v2_complete$iso.sg),0.75),2),
+    round(quantile(na.omit(oxi_pbde_covars_v2_complete$iso.sg),0.95),2)))
+
+  isom_sg_avg<-rbind(table_2v2, cbind(
+    "Averaged specific gravity corrected 8-iso-PGF2a metabolite (2,3-dinor-5,6-dihydro-8-iso-PGF2α) across study visits (ng/mL)",
+    NROW(na.omit(oxi_pbde_covars_v2_complete$isom.sg)),
+    "--",
+    "--",
+    (round(exp(mean(log(as.numeric(oxi_pbde_covars_v2_complete$isom.sg)),na.rm=T)),2)),
+    (round(exp(sd(log(as.numeric(oxi_pbde_covars_v2_complete$isom.sg)),na.rm=T)),2)),
+    round(quantile(na.omit(oxi_pbde_covars_v2_complete$isom.sg),0.05),2),
+    round(quantile(na.omit(oxi_pbde_covars_v2_complete$isom.sg),0.25),2),
+    round(quantile(na.omit(oxi_pbde_covars_v2_complete$isom.sg),0.50),2),
+    round(quantile(na.omit(oxi_pbde_covars_v2_complete$isom.sg),0.75),2),
+    round(quantile(na.omit(oxi_pbde_covars_v2_complete$isom.sg),0.95),2)))
+
+
+  isom_new_sg_avg<-rbind(table_2v2, cbind(
+    "Averaged specific gravity corrected 8-iso-PGF2a metabolite (2,3-dinor-8-iso-PGF2α) across study visits (ng/mL)",
+    NROW(na.omit(oxi_pbde_covars_v2_complete$isom.new.sg)),
+    "--",
+    "--",
+    (round(exp(mean(log(as.numeric(oxi_pbde_covars_v2_complete$isom.new.sg)),na.rm=T)),2)),
+    (round(exp(sd(log(as.numeric(oxi_pbde_covars_v2_complete$isom.new.sg)),na.rm=T)),2)),
+    round(quantile(na.omit(oxi_pbde_covars_v2_complete$isom.new.sg),0.05),2),
+    round(quantile(na.omit(oxi_pbde_covars_v2_complete$isom.new.sg),0.25),2),
+    round(quantile(na.omit(oxi_pbde_covars_v2_complete$isom.new.sg),0.50),2),
+    round(quantile(na.omit(oxi_pbde_covars_v2_complete$isom.new.sg),0.75),2),
+    round(quantile(na.omit(oxi_pbde_covars_v2_complete$isom.new.sg),0.95),2)))
+
+  pgf_sg_avg<-rbind(table_2v2, cbind(
+    "Averaged specific gravity corrected PGF-2a across study visits (ng/mL)",
+    NROW(na.omit(oxi_pbde_covars_v2_complete$pgf.sg)),
+    "--",
+    "--",
+    (round(exp(mean(log(as.numeric(oxi_pbde_covars_v2_complete$pgf.sg)),na.rm=T)),2)),
+    (round(exp(sd(log(as.numeric(oxi_pbde_covars_v2_complete$pgf.sg)),na.rm=T)),2)),
+    round(quantile(na.omit(oxi_pbde_covars_v2_complete$pgf.sg),0.05),2),
+    round(quantile(na.omit(oxi_pbde_covars_v2_complete$pgf.sg),0.25),2),
+    round(quantile(na.omit(oxi_pbde_covars_v2_complete$pgf.sg),0.50),2),
+    round(quantile(na.omit(oxi_pbde_covars_v2_complete$pgf.sg),0.75),2),
+    round(quantile(na.omit(oxi_pbde_covars_v2_complete$pgf.sg),0.95),2)))
+
+  iso_chem_sg_avg<-rbind(table_2v2, cbind(
+    "Averaged specific gravity corrected 8-iso-PGF2a chemical fraction across study visits (ng/mL)",
+    NROW(na.omit(oxi_pbde_covars_v2_complete$iso.chem.sg)),
+    "--",
+    "--",
+    (round(exp(mean(log(as.numeric(oxi_pbde_covars_v2_complete$iso.chem.sg)),na.rm=T)),2)),
+    (round(exp(sd(log(as.numeric(oxi_pbde_covars_v2_complete$iso.chem.sg)),na.rm=T)),2)),
+    round(quantile(na.omit(oxi_pbde_covars_v2_complete$iso.chem.sg),0.05),2),
+    round(quantile(na.omit(oxi_pbde_covars_v2_complete$iso.chem.sg),0.25),2),
+    round(quantile(na.omit(oxi_pbde_covars_v2_complete$iso.chem.sg),0.50),2),
+    round(quantile(na.omit(oxi_pbde_covars_v2_complete$iso.chem.sg),0.75),2),
+    round(quantile(na.omit(oxi_pbde_covars_v2_complete$iso.chem.sg),0.95),2)))
+
+  iso_enz_sg_avg<-rbind(table_2v2, cbind(
+    "Averaged specific gravity corrected 8-iso-PGF2a enzymatic fraction across study visits (ng/mL)",
+    NROW(na.omit(oxi_pbde_covars_v2_complete$iso.enz.sg)),
+    "--",
+    "--",
+    (round(exp(mean(log(as.numeric(oxi_pbde_covars_v2_complete$iso.enz.sg)),na.rm=T)),2)),
+    (round(exp(sd(log(as.numeric(oxi_pbde_covars_v2_complete$iso.enz.sg)),na.rm=T)),2)),
+    round(quantile(na.omit(oxi_pbde_covars_v2_complete$iso.enz.sg),0.05),2),
+    round(quantile(na.omit(oxi_pbde_covars_v2_complete$iso.enz.sg),0.25),2),
+    round(quantile(na.omit(oxi_pbde_covars_v2_complete$iso.enz.sg),0.50),2),
+    round(quantile(na.omit(oxi_pbde_covars_v2_complete$iso.enz.sg),0.75),2),
+    round(quantile(na.omit(oxi_pbde_covars_v2_complete$iso.enz.sg),0.95),2)))
+
+    table_2v2<-rbind(iso_sg_avg, isom_sg_avg, isom_new_sg_avg, pgf_sg_avg, iso_chem_sg_avg, iso_enz_sg_avg)
+  colnames(table_2v2)<-c("   ", "N","% Above MDL", "% Machine Readable",  "Geo Mean", "Geo SD",
+                         "5%", "25%", "50%", "75%", "95%")
+  rownames(table_2v2)<-NULL
+  View(table_2v2)
+
+}
+# run after running the formula above separately
+table_2v2<- as.data.frame(table_2v2)
+
+
+## visit 3
+label(oxi_pbde_covars_visit3$iso.sg)<-"8-iso-PGF2α (ng/mL)"
+label(oxi_pbde_covars_visit3$isom.sg)<-  "8-iso-PGF2a metabolite (2,3-dinor-5,6-dihydro-8-iso-PGF2α) (ng/mL)"
+label(oxi_pbde_covars_visit3$isom.new.sg)<- "8-iso-PGF2a metabolite (2,3-dinor-8-iso-PGF2α) (ng/mL)"
+label(oxi_pbde_covars_visit3$pgf.sg)<-"PGF-2α (ng/mL)"
+label(oxi_pbde_covars_visit3$iso.chem.sg)<-"8-iso-PGF2α chemical fraction (ng/mL)"
+label(oxi_pbde_covars_visit3$iso.enz.sg)<-"8-iso-PGF2α enzymatic fraction (ng/mL)"
+label(oxi_pbde_covars_visit3$BDE47_no_MDL_lip)<-"BDE-47 (ng/g lipid)"
+label(oxi_pbde_covars_visit3$BDE99_no_MDL_lip)<-"BDE-99 (ng/g lipid)"
+label(oxi_pbde_covars_visit3$BDE100_no_MDL_lip)<-"BDE-100 (ng/g lipid)"
+label(oxi_pbde_covars_visit3$BDE153_no_MDL_lip)<-"BDE-153 (ng/g lipid)"
+# option 1
+dist.table_2v3<-function(oxi_pbde_covars_v3_complete){
+
+  table_2v3<-NULL
+
+  iso_sg_avg<-rbind(table_2v3, cbind(
+    "Averaged specific gravity corrected 8-iso-PGF2a across study visits (ng/mL)",
+    NROW(na.omit(oxi_pbde_covars_v3_complete$iso.sg)),
+    "--",
+    "--",
+    (round(exp(mean(log(as.numeric(oxi_pbde_covars_v3_complete$iso.sg)),na.rm=T)),2)),
+    (round(exp(sd(log(as.numeric(oxi_pbde_covars_v3_complete$iso.sg)),na.rm=T)),2)),
+    round(quantile(na.omit(oxi_pbde_covars_v3_complete$iso.sg),0.05),2),
+    round(quantile(na.omit(oxi_pbde_covars_v3_complete$iso.sg),0.25),2),
+    round(quantile(na.omit(oxi_pbde_covars_v3_complete$iso.sg),0.50),2),
+    round(quantile(na.omit(oxi_pbde_covars_v3_complete$iso.sg),0.75),2),
+    round(quantile(na.omit(oxi_pbde_covars_v3_complete$iso.sg),0.95),2)))
+
+  isom_sg_avg<-rbind(table_2v3, cbind(
+    "Averaged specific gravity corrected 8-iso-PGF2a metabolite (2,3-dinor-5,6-dihydro-8-iso-PGF2α) across study visits (ng/mL)",
+    NROW(na.omit(oxi_pbde_covars_v3_complete$isom.sg)),
+    "--",
+    "--",
+    (round(exp(mean(log(as.numeric(oxi_pbde_covars_v3_complete$isom.sg)),na.rm=T)),2)),
+    (round(exp(sd(log(as.numeric(oxi_pbde_covars_v3_complete$isom.sg)),na.rm=T)),2)),
+    round(quantile(na.omit(oxi_pbde_covars_v3_complete$isom.sg),0.05),2),
+    round(quantile(na.omit(oxi_pbde_covars_v3_complete$isom.sg),0.25),2),
+    round(quantile(na.omit(oxi_pbde_covars_v3_complete$isom.sg),0.50),2),
+    round(quantile(na.omit(oxi_pbde_covars_v3_complete$isom.sg),0.75),2),
+    round(quantile(na.omit(oxi_pbde_covars_v3_complete$isom.sg),0.95),2)))
+
+
+  isom_new_sg_avg<-rbind(table_2v3, cbind(
+    "Averaged specific gravity corrected 8-iso-PGF2a metabolite (2,3-dinor-8-iso-PGF2α) across study visits (ng/mL)",
+    NROW(na.omit(oxi_pbde_covars_v3_complete$isom.new.sg)),
+    "--",
+    "--",
+    (round(exp(mean(log(as.numeric(oxi_pbde_covars_v3_complete$isom.new.sg)),na.rm=T)),2)),
+    (round(exp(sd(log(as.numeric(oxi_pbde_covars_v3_complete$isom.new.sg)),na.rm=T)),2)),
+    round(quantile(na.omit(oxi_pbde_covars_v3_complete$isom.new.sg),0.05),2),
+    round(quantile(na.omit(oxi_pbde_covars_v3_complete$isom.new.sg),0.25),2),
+    round(quantile(na.omit(oxi_pbde_covars_v3_complete$isom.new.sg),0.50),2),
+    round(quantile(na.omit(oxi_pbde_covars_v3_complete$isom.new.sg),0.75),2),
+    round(quantile(na.omit(oxi_pbde_covars_v3_complete$isom.new.sg),0.95),2)))
+
+  pgf_sg_avg<-rbind(table_2v3, cbind(
+    "Averaged specific gravity corrected PGF-2a across study visits (ng/mL)",
+    NROW(na.omit(oxi_pbde_covars_v3_complete$pgf.sg)),
+    "--",
+    "--",
+    (round(exp(mean(log(as.numeric(oxi_pbde_covars_v3_complete$pgf.sg)),na.rm=T)),2)),
+    (round(exp(sd(log(as.numeric(oxi_pbde_covars_v3_complete$pgf.sg)),na.rm=T)),2)),
+    round(quantile(na.omit(oxi_pbde_covars_v3_complete$pgf.sg),0.05),2),
+    round(quantile(na.omit(oxi_pbde_covars_v3_complete$pgf.sg),0.25),2),
+    round(quantile(na.omit(oxi_pbde_covars_v3_complete$pgf.sg),0.50),2),
+    round(quantile(na.omit(oxi_pbde_covars_v3_complete$pgf.sg),0.75),2),
+    round(quantile(na.omit(oxi_pbde_covars_v3_complete$pgf.sg),0.95),2)))
+
+  iso_chem_sg_avg<-rbind(table_2v3, cbind(
+    "Averaged specific gravity corrected 8-iso-PGF2a chemical fraction across study visits (ng/mL)",
+    NROW(na.omit(oxi_pbde_covars_v3_complete$iso.chem.sg)),
+    "--",
+    "--",
+    (round(exp(mean(log(as.numeric(oxi_pbde_covars_v3_complete$iso.chem.sg)),na.rm=T)),2)),
+    (round(exp(sd(log(as.numeric(oxi_pbde_covars_v3_complete$iso.chem.sg)),na.rm=T)),2)),
+    round(quantile(na.omit(oxi_pbde_covars_v3_complete$iso.chem.sg),0.05),2),
+    round(quantile(na.omit(oxi_pbde_covars_v3_complete$iso.chem.sg),0.25),2),
+    round(quantile(na.omit(oxi_pbde_covars_v3_complete$iso.chem.sg),0.50),2),
+    round(quantile(na.omit(oxi_pbde_covars_v3_complete$iso.chem.sg),0.75),2),
+    round(quantile(na.omit(oxi_pbde_covars_v3_complete$iso.chem.sg),0.95),2)))
+
+  iso_enz_sg_avg<-rbind(table_2v3, cbind(
+    "Averaged specific gravity corrected 8-iso-PGF2a enzymatic fraction across study visits (ng/mL)",
+    NROW(na.omit(oxi_pbde_covars_v3_complete$iso.enz.sg)),
+    "--",
+    "--",
+    (round(exp(mean(log(as.numeric(oxi_pbde_covars_v3_complete$iso.enz.sg)),na.rm=T)),2)),
+    (round(exp(sd(log(as.numeric(oxi_pbde_covars_v3_complete$iso.enz.sg)),na.rm=T)),2)),
+    round(quantile(na.omit(oxi_pbde_covars_v3_complete$iso.enz.sg),0.05),2),
+    round(quantile(na.omit(oxi_pbde_covars_v3_complete$iso.enz.sg),0.25),2),
+    round(quantile(na.omit(oxi_pbde_covars_v3_complete$iso.enz.sg),0.50),2),
+    round(quantile(na.omit(oxi_pbde_covars_v3_complete$iso.enz.sg),0.75),2),
+    round(quantile(na.omit(oxi_pbde_covars_v3_complete$iso.enz.sg),0.95),2)))
+
+    table_2v3<-rbind(iso_sg_avg, isom_sg_avg, isom_new_sg_avg, pgf_sg_avg, iso_chem_sg_avg, iso_enz_sg_avg)
+  colnames(table_2v3)<-c("   ", "N","% Above MDL", "% Machine Readable",  "Geo Mean", "Geo SD",
+                         "5%", "25%", "50%", "75%", "95%")
+  rownames(table_2v3)<-NULL
+  View(table_2v3)
+
+}
+# run after running the formula above separately
+table_2v3<- as.data.frame(table_2v3)
+
+
+## MDL 
+# select relevant IDs from raw data 
+raw_oxistress <- ucsf_raw_oxi_stress %>% filter(`Sample ID` %in% id)
+dim(raw_oxistress)
+list_oxi_raw  = raw_oxistress$`Sample ID`   # check all correct sample IDs have been included
+list=cbind(list_oxi_raw, id)
+write.csv(list, file = "list_oxi_raw.csv")   # open file, sort and make sure all correct sample IDs have been included
+
+raw_oxistress_v2 <- ucsf_raw_oxi_stress %>% filter(`Sample ID` %in% id_v2 & `Sample Type` == "2nd Tri Maternal Urine")
+dim(raw_oxistress_v2)
+list_v2_oxi_raw  = raw_oxistress_v2$`Sample ID`
+list=cbind(list_v2_oxi_raw, id_v2)
+write.csv(list, file = "raw_oxistress_v2.csv") # open file, sort and make sure all correct sample IDs have been included
+
+raw_oxistress_v3 <- raw_oxistress %>% filter(`Sample ID` %in% id_v3 & `Sample Type` == "3rd Tri Maternal Urine")
+dim(raw_oxistress_v3)
+list_v3_oxi_raw  = raw_oxistress_v3$`Sample ID`
+list=cbind(list_v3_oxi_raw, id_v3)
+write.csv(list, file = "raw_oxistress_v3.csv") # open file, sort and make sure all correct sample IDs have been included
+
+# calculate MDL for Visit 2
+   # change class
+raw_oxistress_v2[] <- lapply(raw_oxistress_v2, as.double)
+
+raw_oxistress_MDL_v2<- cbind(
+  rbind( # Names 
+"","IsoP (ng/mg Cr)",  "2,3-dinor-8-iso-PGF2a (ng/mgCr)", "2,3-dinor-5,6-dihydro-8-iso-PGF2a (ng/mgCr)", "F2a (ng/mgCr)")
+
+, rbind( # ABOVE MDL ~ [total N  - (# NA + # Os)]  / total N
+"ABOVE MDL [total N  - (# NA + # Os)]  / total N",
+round(((nrow(raw_oxistress_v2) - length(raw_oxistress_v2$`IsoP (ng/mg Cr)`[raw_oxistress_v2$`IsoP (ng/mg Cr)` == 0]))/nrow(raw_oxistress_v2))*100,2),
+round(((nrow(raw_oxistress_v2) - length(raw_oxistress_v2$`2,3-dinor-8-iso-PGF2a (ng/mgCr)`[raw_oxistress_v2$`2,3-dinor-8-iso-PGF2a (ng/mgCr)` == 0]))/nrow(raw_oxistress_v2))*100,2),
+round(((nrow(raw_oxistress_v2) - length(raw_oxistress_v2$`2,3-dinor-5,6-dihydro-8-iso-PGF2a (ng/mgCr)`[raw_oxistress_v2$`2,3-dinor-5,6-dihydro-8-iso-PGF2a (ng/mgCr)` == 0]))/nrow(raw_oxistress_v2))*100,2), 
+round(((nrow(raw_oxistress_v2) - length(raw_oxistress_v2$`F2a (ng/mgCr)`[raw_oxistress_v2$`F2a (ng/mgCr)` == 0]))/nrow(raw_oxistress_v2))*100,2))
+)
+
+write.csv(raw_oxistress_MDL_v2, file = "raw_oxistress_MDL_v2.csv")
+
+# calculate MDL for Visit 3
+# change class
+raw_oxistress_v3[] <- lapply(raw_oxistress_v3, as.double)
+
+raw_oxistress_MDL_v3<- cbind(
+  rbind( # Names 
+    "", "IsoP (ng/mg Cr)", "2,3-dinor-8-iso-PGF2a (ng/mgCr)", "2,3-dinor-5,6-dihydro-8-iso-PGF2a (ng/mgCr)", "F2a (ng/mgCr)")
+  
+  , rbind( # ABOVE MDL ~ [total N  - (# NA + # Os)]  / total N
+    "ABOVE MDL [total N  - (# NA + # Os)]  / total N",
+    round(((nrow(raw_oxistress_v3) - length(raw_oxistress_v3$`IsoP (ng/mg Cr)`[raw_oxistress_v3$`IsoP (ng/mg Cr)` == 0]))/nrow(raw_oxistress_v3))*100,2),
+    round(((nrow(raw_oxistress_v3) - length(raw_oxistress_v3$`2,3-dinor-8-iso-PGF2a (ng/mgCr)`[raw_oxistress_v3$`2,3-dinor-8-iso-PGF2a (ng/mgCr)` == 0]))/nrow(raw_oxistress_v3))*100,2),
+    round(((nrow(raw_oxistress_v3) - length(raw_oxistress_v3$`2,3-dinor-5,6-dihydro-8-iso-PGF2a (ng/mgCr)`[raw_oxistress_v3$`2,3-dinor-5,6-dihydro-8-iso-PGF2a (ng/mgCr)` == 0]))/nrow(raw_oxistress_v3))*100,2), 
+    round(((nrow(raw_oxistress_v3) - length(raw_oxistress_v3$`F2a (ng/mgCr)`[raw_oxistress_v3$`F2a (ng/mgCr)` == 0]))/nrow(raw_oxistress_v3))*100,2))
+  )
+
+write.csv(raw_oxistress_MDL_v3, file = "raw_oxistress_MDL_v3.csv")
+```
+
+## 3 Univariate Relation between exposures
+Figure S3. Spearman correlations between levels of natural log-transformed serum polybrominated diphenyl ethers (PBDEs in ng/g lipid) and averaged, natural log-transformed urinary oxidative stress biomarker (ng/mL) corrected with specific gravity in the Chemicals in Our Bodies cohort, 2014-2018 (N=201). 
+```{r corr}
+######## Correlation ########
+corr_data<- oxi_pbde_covars_complete %>%  select(lnBDE47, lnBDE99, lnBDE100, lnBDE153,
+                                        ln8iso_avg, ln8isom_avg, ln8isom_new_avg,
+                                        lnpgf_avg, ln8iso_chem_avg, ln8iso_enz_avg )
+
+colnames(corr_data)  <- c("BDE-47", "BDE-99", "BDE-100", "BDE-153",
+                          "8-iso-PGF2α",
+                          "2,3-dinor-5,6-dihydro-8-iso-PGF2α",
+                          "2,3-dinor-8-iso-PGF2α",
+                          "PGF2α",
+                          "8-iso-PGF2α chemical fraction",
+                          "8-iso-PGF2α enzymatic fraction" )
+
+corrplot(cor(corr_data, method = "pearson", use= "complete.obs"), method = "square",  addCoef.col = 'black',
+        title = "Correlation Matrix (pearson)",  tl.col = "black", type="lower", number.cex = 0.8,  cl.pos = 'n', col = COL2('RdYlBu'))
+# in figures and tables, different corr(), th eone with only N = 201
+
+```
+
+## 4 Linear Regression models 
+Examine unadjusted relation for: 
+Table S1. Unadjusted and adjusted linear regression coefficients and 95% confidence intervals for averaged urinary oxidative stress biomarkers (ng/mL) corrected with specific gravity with a natural log unit increase in serum polybrominated diphenyl ethers levels (ng/g lipid) in the Chemicals in Our Bodies cohort, 2014-2018. 
+
+```{r slr}
+# simple linear regression
+#ln8iso_avg
+  tab_model(lm(ln8iso_avg ~ lnBDE47, data = oxi_pbde_covars),
+            lm(ln8iso_avg ~ lnBDE99, data = oxi_pbde_covars),
+            lm(ln8iso_avg ~ lnBDE100, data = oxi_pbde_covars),
+            lm(ln8iso_avg ~ lnBDE153, data = oxi_pbde_covars), collapse.ci = T, show.aic = T, show.p=F, p.style = "scientific_stars")
+
+#ln8isom_avg
+tab_model(lm(ln8isom_avg ~ lnBDE47, data = oxi_pbde_covars),
+          lm(ln8isom_avg ~ lnBDE99, data = oxi_pbde_covars),
+          lm(ln8isom_avg ~ lnBDE100, data = oxi_pbde_covars),
+          lm(ln8isom_avg ~ lnBDE153, data = oxi_pbde_covars),  collapse.ci = T, show.aic = T, show.p=F, p.style = "scientific_stars")
+
+#ln8isom_new_avg
+tab_model(lm(ln8isom_new_avg ~ lnBDE47, data = oxi_pbde_covars),
+          lm(ln8isom_new_avg ~ lnBDE99, data = oxi_pbde_covars),
+          lm(ln8isom_new_avg ~ lnBDE100, data = oxi_pbde_covars),
+          lm(ln8isom_new_avg ~ lnBDE153, data = oxi_pbde_covars),  collapse.ci = T, show.aic = T, show.p=F, p.style = "scientific_stars")
+
+#lnpgf_avg
+tab_model(lm(lnpgf_avg ~ lnBDE47, data = oxi_pbde_covars),
+          lm(lnpgf_avg ~ lnBDE99, data = oxi_pbde_covars),
+          lm(lnpgf_avg ~ lnBDE100, data = oxi_pbde_covars),
+          lm(lnpgf_avg ~ lnBDE153, data = oxi_pbde_covars),  collapse.ci = T, show.aic = T, show.p=F, p.style = "scientific_stars")
+
+#ln8iso_chem_avg
+tab_model(lm(ln8iso_chem_avg ~ lnBDE47, data = oxi_pbde_covars),
+          lm(ln8iso_chem_avg ~ lnBDE99, data = oxi_pbde_covars),
+          lm(ln8iso_chem_avg ~ lnBDE100, data = oxi_pbde_covars),
+          lm(ln8iso_chem_avg ~ lnBDE153, data = oxi_pbde_covars),  collapse.ci = T, show.aic = T, show.p=F, p.style = "scientific_stars")
+
+#ln8iso_enz_avg
+tab_model(lm(ln8iso_enz_avg ~ lnBDE47, data = oxi_pbde_covars),
+          lm(ln8iso_enz_avg ~ lnBDE99, data = oxi_pbde_covars),
+          lm(ln8iso_enz_avg ~ lnBDE100, data = oxi_pbde_covars),
+          lm(ln8iso_enz_avg ~ lnBDE153, data = oxi_pbde_covars), collapse.ci = T, show.aic = T, show.p=F, p.style = "scientific_stars")
+
+```
+
+The following code produced: 
+- Table S2.  Unadjusted and adjusted linear regression coefficients and 95% confidence intervals for 2nd trimester urinary oxidative stress biomarkers (ng/mL) corrected with specific gravity with a natural log unit increase in serum polybrominated diphenyl ethers levels (ng/g lipid) in the Chemicals in Our Bodies cohort, 2014-2018. 
+
+- Table S3. Unadjusted and adjusted linear regression coefficients and 95% confidence intervals for 3rd trimester urinary oxidative stress biomarkers (ng/mL) corrected with specific gravity with a natural log unit increase in serum polybrominated diphenyl ethers levels (ng/g lipid) in the Chemicals in Our Bodies cohort, 2014-2018. 
+```{r slr_v2_v3}
+## visit 2
+for(i in (oxi_pbde_covars_visit2[3:8])) {
+  print(tab_model( lm(i ~ lnBDE47 , data = oxi_pbde_covars_visit2),
+                   lm(i ~ lnBDE99 , data = oxi_pbde_covars_visit2),
+                   lm(i ~ lnBDE100 , data = oxi_pbde_covars_visit2),
+                   lm(i ~ lnBDE153 , data = oxi_pbde_covars_visit2),
+                   terms = c("lnBDE47", "lnBDE99", "lnBDE100", "lnBDE153"),
+                   collapse.ci = T, show.aic = T, show.p=F, p.style = "scientific_stars"))
+}
+
+## visit 3
+for(i in (oxi_pbde_covars_visit3[3:8])) {
+  print(tab_model( lm(i ~ lnBDE47  , data = oxi_pbde_covars_visit3),
+                   lm(i ~ lnBDE99  , data = oxi_pbde_covars_visit3),
+                   lm(i ~ lnBDE100 , data = oxi_pbde_covars_visit3),
+                   lm(i ~ lnBDE153 , data = oxi_pbde_covars_visit3),
+                   terms = c("lnBDE47", "lnBDE99", "lnBDE100", "lnBDE153"),
+                   collapse.ci = T, show.aic = T, show.p=F, p.style = "scientific_stars"))
+}
+```
+
+Examine adjusted linear regressions for: 
+- Figure 1. Associations between serum levels of polybrominated diphenyl ethers (ng/g lipid) and urinary levels of specific gravity corrected oxidative stress biomarkers (ng/mL) during pregnancy, estimated using quantile g-computation and linear regression in the Chemicals in Our Bodies cohort, 2014-2018. 
+- Table S1. Unadjusted and adjusted linear regression coefficients and 95% confidence intervals for averaged urinary oxidative stress biomarkers (ng/mL) corrected with specific gravity with a natural log unit increase in serum polybrominated diphenyl ethers levels (ng/g lipid) in the Chemicals in Our Bodies cohort, 2014-2018. 
+- Table S2.  Unadjusted and adjusted linear regression coefficients and 95% confidence intervals for 2nd trimester urinary oxidative stress biomarkers (ng/mL) corrected with specific gravity with a natural log unit increase in serum polybrominated diphenyl ethers levels (ng/g lipid) in the Chemicals in Our Bodies cohort, 2014-2018. 
+- Table S3. Unadjusted and adjusted linear regression coefficients and 95% confidence intervals for 3rd trimester urinary oxidative stress biomarkers (ng/mL) corrected with specific gravity with a natural log unit increase in serum polybrominated diphenyl ethers levels (ng/g lipid) in the Chemicals in Our Bodies cohort, 2014-2018. 
+
+```{r mlr}
+#   pregnancy average
+mlr.models.plot <- function(dt){
+  #by visit
+  ln8iso_47mlr_visit<- lm(ln8iso_avg  ~ lnBDE47 + parity + mat_age + ppbmi + mat_educ + hospital, data = dt)
+  ln8iso_99mlr_visit<- lm(ln8iso_avg  ~ lnBDE99 + parity + mat_age + ppbmi + mat_educ + hospital, data = dt)
+  ln8iso_100mlr_visit<-lm(ln8iso_avg  ~ lnBDE100+ parity + mat_age + ppbmi + mat_educ + hospital, data = dt)
+  ln8iso_153mlr_visit<-lm(ln8iso_avg  ~ lnBDE153  + parity + mat_age + ppbmi + mat_educ + hospital, data = dt)
+
+  bde47_8iso_output<-cbind(round(ln8iso_47mlr_visit$coefficients,2)[2],round(confint(ln8iso_47mlr_visit),2)[2],round(confint(ln8iso_47mlr_visit),2)[11])
+  bde99_8iso_output<-cbind(round(ln8iso_99mlr_visit$coefficients,2)[2],round(confint(ln8iso_99mlr_visit),2)[2],round(confint(ln8iso_99mlr_visit),2)[11])
+  bde100_8iso_output<-cbind(round(ln8iso_100mlr_visit$coefficients,2)[2],round(confint(ln8iso_100mlr_visit),2)[2],round(confint(ln8iso_100mlr_visit),2)[11])
+  bde153_8iso_output<-cbind(round(ln8iso_153mlr_visit$coefficients,2)[2],round(confint(ln8iso_153mlr_visit),2)[2],round(confint(ln8iso_153mlr_visit),2)[11])
+
+
+  ln8isom_47mlr_visit<- lm(ln8isom_avg  ~ lnBDE47 + parity + mat_age + ppbmi + mat_educ + hospital, data = dt)
+  ln8isom_99mlr_visit<-  lm(ln8isom_avg  ~ lnBDE99 + parity + mat_age + ppbmi + mat_educ+ hospital, data = dt)
+  ln8isom_100mlr_visit<-lm(ln8isom_avg  ~ lnBDE100+ parity + mat_age + ppbmi + mat_educ+ hospital, data = dt)
+  ln8isom_153mlr_visit<-lm(ln8isom_avg  ~ lnBDE153  + parity + mat_age + ppbmi + mat_educ+ hospital, data = dt)
+
+  bde47_8isom_output<-cbind(round(ln8isom_47mlr_visit$coefficients,2)[2],round(confint(ln8isom_47mlr_visit),2)[2],round(confint(ln8isom_47mlr_visit),2)[11])
+  bde99_8isom_output<-cbind(round(ln8isom_99mlr_visit$coefficients,2)[2],round(confint(ln8isom_99mlr_visit),2)[2],round(confint(ln8isom_99mlr_visit),2) [11])
+  bde100_8isom_output<-cbind(round(ln8isom_100mlr_visit$coefficients,2)[2],round(confint(ln8isom_100mlr_visit),2)[2],round(confint(ln8isom_100mlr_visit),2)[11])
+  bde153_8isom_output<-cbind(round(ln8isom_153mlr_visit$coefficients,2)[2],round(confint(ln8isom_153mlr_visit),2)[2],round(confint(ln8isom_153mlr_visit),2)[11])
+
+
+
+  ln8isomnew_47mlr_visit<- lm(ln8isom_new_avg   ~ lnBDE47 + parity + mat_age + ppbmi + mat_educ + hospital, data = dt)
+  ln8isomnew_99mlr_visit<-  lm(ln8isom_new_avg   ~ lnBDE99 + parity + mat_age + ppbmi + mat_educ + hospital, data = dt)
+  ln8isomnew_100mlr_visit<- lm(ln8isom_new_avg   ~ lnBDE100+ parity + mat_age + ppbmi + mat_educ + hospital, data = dt)
+  ln8isomnew_153mlr_visit<- lm(ln8isom_new_avg   ~ lnBDE153  + parity + mat_age + ppbmi + mat_educ + hospital, data = dt)
+
+  bde47_8isomnew_output<-cbind(round(ln8isomnew_47mlr_visit$coefficients,2)[2],round(confint(ln8isomnew_47mlr_visit),2)[2],round(confint(ln8isomnew_47mlr_visit),2)[11])
+  bde99_8isomnew_output<-cbind(round(ln8isomnew_99mlr_visit$coefficients,2)[2],round(confint(ln8isomnew_99mlr_visit),2)[2],round(confint(ln8isomnew_99mlr_visit),2)[11])
+  bde100_8isomnew_output<-cbind(round(ln8isomnew_100mlr_visit$coefficients,2)[2],round(confint(ln8isomnew_100mlr_visit),2)[2],round(confint(ln8isomnew_100mlr_visit),2)[11])
+  bde153_8isomnew_output<-cbind(round(ln8isomnew_153mlr_visit$coefficients,2)[2],round(confint(ln8isomnew_153mlr_visit),2)[2],round(confint(ln8isomnew_153mlr_visit),2)[11])
+
+
+
+  ln8isochem_47mlr_visit<- lm(ln8iso_chem_avg  ~ lnBDE47 + parity + mat_age + ppbmi + mat_educ + hospital, data = dt)
+  ln8isochem_99mlr_visit<- lm(ln8iso_chem_avg  ~ lnBDE99 + parity + mat_age + ppbmi + mat_educ+ hospital, data = dt)
+  ln8isochem_100mlr_visit<- lm(ln8iso_chem_avg  ~ lnBDE100+ parity + mat_age + ppbmi + mat_educ+ hospital, data = dt)
+  ln8isochem_153mlr_visit<- lm(ln8iso_chem_avg  ~ lnBDE153  + parity + mat_age + ppbmi + mat_educ+ hospital, data = dt)
+
+  bde47_8isochem_output<-cbind(round(ln8isochem_47mlr_visit$coefficients,2)[2],round(confint(ln8isochem_47mlr_visit),2)[2],round(confint(ln8isochem_47mlr_visit),2)[11])
+  bde99_8isochem_output<-cbind(round(ln8isochem_99mlr_visit$coefficients,2)[2],round(confint(ln8isochem_99mlr_visit),2)[2],round(confint(ln8isochem_99mlr_visit),2)[11])
+  bde100_8isochem_output<-cbind(round(ln8isochem_100mlr_visit$coefficients,2)[2],round(confint(ln8isochem_100mlr_visit),2)[2],round(confint(ln8isochem_100mlr_visit),2)[11])
+  bde153_8isochem_output<-cbind(round(ln8isochem_153mlr_visit$coefficients,2)[2],round(confint(ln8isochem_153mlr_visit),2)[2],round(confint(ln8isochem_153mlr_visit),2)[11])
+
+
+
+  ln8isoenz_47mlr_visit<-  lm(ln8iso_enz_avg  ~ lnBDE47 + parity + mat_age + ppbmi + mat_educ + hospital, data = dt)
+  ln8isoenz_99mlr_visit<- lm(ln8iso_enz_avg  ~ lnBDE99 + parity + mat_age + ppbmi + mat_educ+ hospital, data = dt)
+  ln8isoenz_100mlr_visit<- lm(ln8iso_enz_avg  ~ lnBDE100+ parity + mat_age + ppbmi + mat_educ + hospital, data = dt)
+  ln8isoenz_153mlr_visit<- lm(ln8iso_enz_avg  ~ lnBDE153  + parity + mat_age + ppbmi + mat_educ + hospital, data = dt)
+
+  bde47_8isoenz_output<-cbind(round(ln8isoenz_47mlr_visit$coefficients,2)[2],round(confint(ln8isoenz_47mlr_visit),2)[2],round(confint(ln8isoenz_47mlr_visit),2)[11])
+  bde99_8isoenz_output<-cbind(round(ln8isoenz_99mlr_visit$coefficients,2)[2],round(confint(ln8isoenz_99mlr_visit),2)[2],round(confint(ln8isoenz_99mlr_visit),2)[11])
+  bde100_8isoenz_output<-cbind(round(ln8isoenz_100mlr_visit$coefficients,2)[2],round(confint(ln8isoenz_100mlr_visit),2)[2],round(confint(ln8isoenz_100mlr_visit),2)[11])
+  bde153_8isoenz_output<-cbind(round(ln8isoenz_153mlr_visit$coefficients,2)[2],round(confint(ln8isoenz_153mlr_visit),2)[2],round(confint(ln8isoenz_153mlr_visit),2)[11])
+
+
+
+  lnpgf_47mlr_visit<- lm(lnpgf_avg  ~ lnBDE47 + parity + mat_age + ppbmi + mat_educ + hospital, data = dt)
+  lnpgf_99mlr_visit<- lm(lnpgf_avg  ~ lnBDE99 + parity + mat_age + ppbmi + mat_educ+ hospital, data = dt)
+  lnpgf_100mlr_visit<- lm(lnpgf_avg  ~ lnBDE100+ parity + mat_age + ppbmi + mat_educ + hospital, data = dt)
+  lnpgf_153mlr_visit<-  lm(lnpgf_avg  ~ lnBDE153  + parity + mat_age + ppbmi + mat_educ + hospital, data = dt)
+
+  bde47_pgf_output<-cbind(round(lnpgf_47mlr_visit$coefficients,2)[2],round(confint(lnpgf_47mlr_visit),2)[2],round(confint(lnpgf_47mlr_visit),2)[11])
+  bde99_pgf_output<-cbind(round(lnpgf_99mlr_visit$coefficients,2)[2],round(confint(lnpgf_99mlr_visit),2)[2],round(confint(lnpgf_99mlr_visit),2)[11])
+  bde100_pgf_output<-cbind(round(lnpgf_100mlr_visit$coefficients,2)[2],round(confint(lnpgf_100mlr_visit),2)[2],round(confint(lnpgf_100mlr_visit),2)[11])
+  bde153_pgf_output<-cbind(round(lnpgf_153mlr_visit$coefficients,2)[2],round(confint(lnpgf_153mlr_visit),2)[2],round(confint(lnpgf_153mlr_visit),2)[11])
+
+  adj.models<-rbind(bde47_8iso_output, bde99_8iso_output, bde100_8iso_output, bde153_8iso_output,
+                    bde47_8isom_output, bde99_8isom_output, bde100_8isom_output, bde153_8isom_output,
+                    bde47_8isomnew_output, bde99_8isomnew_output, bde100_8isomnew_output, bde153_8isomnew_output,
+                    bde47_8isochem_output, bde99_8isochem_output, bde100_8isochem_output, bde153_8isochem_output,
+                    bde47_8isoenz_output, bde99_8isoenz_output, bde100_8isoenz_output, bde153_8isoenz_output,
+                    bde47_pgf_output, bde99_pgf_output, bde100_pgf_output, bde153_pgf_output)
+
+
+  rownames(adj.models)<-c( "ln(8iso PGF2a) and BDE 47", "ln(8iso PGF2a) and BDE 99", "ln(8iso PGF2a) and BDE 100", "ln(8iso PGF2a) and BDE 153",
+                           "ln(8iso PGF2a metabolite) and BDE 47", "ln(8iso PGF2a metabolite) and BDE 99", "ln(8iso PGF2ametabolite) and BDE 100", "ln(8iso PGF2a metabolite) and BDE 153",
+                           "ln(8iso PGF2a metabolite new) and BDE 47", "ln(8iso PGF2a metabolite new) and BDE 99", "ln(8iso PGF2ametabolite new) and BDE 100", "ln(8iso PGF2a metabolite new) and BDE 153",
+                           "ln(8iso PGF2a chemcial fraction) and BDE 47", "ln(8iso PGF2a chemcial fraction) and BDE 99", "ln(8iso PGF2a chemcial fraction) and BDE 100", "ln(8iso PGF2a chemcial fraction) and BDE 153",
+                           "ln(8iso PGF2a enzymatic fraction) and BDE 47", "ln(8iso PGF2a enzymatic fraction) and BDE 99", "ln(8iso PGF2a enzymatic fraction) and BDE 100", "ln(8iso PGF2a enzymatic fraction) and BDE 153",
+                           "ln(PGF2a) and BDE 47", "ln(PGF2a) and BDE 99", "ln(PGF2a) and BDE 100", "ln(PGF2a) and BDE 153")
+
+  colnames(adj.models)<-c("Beta", "LCL", "UCL")
+
+  View(adj.models)
+  clipr::write_clip(adj.models)
+}
+
+
+mlr.forest <- mlr.models.plot(dt=oxi_pbde_covars)
+mlr.forest<- as.data.frame(mlr.forest)
+mlr.forest$pbde<-c(rep(c("BDE 47", "BDE 99", "BDE 100", "BDE 153"), 6))
+mlr.forest$oxi<- c(rep("ln(8-iso PGF2a)", 4),
+                   rep("ln(2,3-dinor-5,6-dihydro-8-iso-PGF2α)", 4),
+                   rep("ln(2,3-dinor-8-iso-PGF2α)", 4),
+                   rep("ln(8-iso PGF2a chemical fraction)", 4),
+                   rep("ln(8-iso PGF2a enzymatic fraction)", 4),
+                   rep("ln(PGF2a)", 4))
+
+mlr.forest$visit <- c(rep("Geom Mean", 24))
+
+
+#  Visit specific model
+adj.linear.models.plot <- function(dt){
+  # by visit
+  ln8iso_47mlr_visit<- lm(ln8iso_sg  ~ lnBDE47 + parity + mat_age + ppbmi + mat_educ + hospital_, data = dt)
+  ln8iso_99mlr_visit<- lm(ln8iso_sg  ~ lnBDE99 + parity + mat_age + ppbmi + mat_educ + hospital_, data = dt)
+  ln8iso_100mlr_visit<-lm(ln8iso_sg  ~ lnBDE100+ parity + mat_age + ppbmi + mat_educ + hospital_, data = dt)
+  ln8iso_153mlr_visit<-lm(ln8iso_sg  ~ lnBDE153  + parity + mat_age + ppbmi + mat_educ + hospital_, data = dt)
+
+  bde47_8iso_output<-cbind(round(ln8iso_47mlr_visit$coefficients,2)[2],round(confint(ln8iso_47mlr_visit),2)[2],round(confint(ln8iso_47mlr_visit),2)[11])
+  bde99_8iso_output<-cbind(round(ln8iso_99mlr_visit$coefficients,2)[2],round(confint(ln8iso_99mlr_visit),2)[2],round(confint(ln8iso_99mlr_visit),2)[11])
+  bde100_8iso_output<-cbind(round(ln8iso_100mlr_visit$coefficients,2)[2],round(confint(ln8iso_100mlr_visit),2)[2],round(confint(ln8iso_100mlr_visit),2)[11])
+  bde153_8iso_output<-cbind(round(ln8iso_153mlr_visit$coefficients,2)[2],round(confint(ln8iso_153mlr_visit),2)[2],round(confint(ln8iso_153mlr_visit),2)[11])
+
+
+  ln8isom_47mlr_visit<- lm(ln8isom_sg  ~ lnBDE47 + parity + mat_age + ppbmi + mat_educ + hospital_, data = dt)
+  ln8isom_99mlr_visit<- lm(ln8isom_sg ~ lnBDE99 + parity + mat_age + ppbmi + mat_educ + hospital_, data = dt)
+  ln8isom_100mlr_visit<-lm(ln8isom_sg  ~ lnBDE100+ parity + mat_age + ppbmi + mat_educ + hospital_, data = dt)
+  ln8isom_153mlr_visit<-lm(ln8isom_sg  ~ lnBDE153  + parity + mat_age + ppbmi + mat_educ + hospital_, data = dt)
+
+  bde47_8isom_output<-cbind(round(ln8isom_47mlr_visit$coefficients,2)[2],round(confint(ln8isom_47mlr_visit),2)[2],round(confint(ln8isom_47mlr_visit),2)[11])
+  bde99_8isom_output<-cbind(round(ln8isom_99mlr_visit$coefficients,2)[2],round(confint(ln8isom_99mlr_visit),2)[2],round(confint(ln8isom_99mlr_visit),2)[11])
+  bde100_8isom_output<-cbind(round(ln8isom_100mlr_visit$coefficients,2)[2],round(confint(ln8isom_100mlr_visit),2)[2],round(confint(ln8isom_100mlr_visit),2)[11])
+  bde153_8isom_output<-cbind(round(ln8isom_153mlr_visit$coefficients,2)[2],round(confint(ln8isom_153mlr_visit),2)[2],round(confint(ln8isom_153mlr_visit),2)[11])
+
+
+
+  ln8isomnew_47mlr_visit<- lm(ln8isom_new_sg   ~ lnBDE47 + parity + mat_age + ppbmi + mat_educ + hospital_, data = dt)
+  ln8isomnew_99mlr_visit<-  lm(ln8isom_new_sg   ~ lnBDE99 + parity + mat_age + ppbmi + mat_educ + hospital_, data = dt)
+  ln8isomnew_100mlr_visit<- lm(ln8isom_new_sg   ~ lnBDE100+ parity + mat_age + ppbmi + mat_educ + hospital_, data = dt)
+  ln8isomnew_153mlr_visit<- lm(ln8isom_new_sg   ~ lnBDE153  + parity + mat_age + ppbmi + mat_educ + hospital_, data = dt)
+
+  bde47_8isomnew_output<-cbind(round(ln8isomnew_47mlr_visit$coefficients,2)[2],round(confint(ln8isomnew_47mlr_visit),2)[2],round(confint(ln8isomnew_47mlr_visit),2)[11])
+  bde99_8isomnew_output<-cbind(round(ln8isomnew_99mlr_visit$coefficients,2)[2],round(confint(ln8isomnew_99mlr_visit),2)[2],round(confint(ln8isomnew_99mlr_visit),2)[11])
+  bde100_8isomnew_output<-cbind(round(ln8isomnew_100mlr_visit$coefficients,2)[2],round(confint(ln8isomnew_100mlr_visit),2)[2],round(confint(ln8isomnew_100mlr_visit),2)[11])
+  bde153_8isomnew_output<-cbind(round(ln8isomnew_153mlr_visit$coefficients,2)[2],round(confint(ln8isomnew_153mlr_visit),2)[2],round(confint(ln8isomnew_153mlr_visit),2)[11])
+
+
+
+  ln8isochem_47mlr_visit<- lm(ln8iso_chem_sg  ~ lnBDE47 + parity + mat_age + ppbmi + mat_educ + hospital_, data = dt)
+  ln8isochem_99mlr_visit<- lm(ln8iso_chem_sg  ~ lnBDE99 + parity + mat_age + ppbmi + mat_educ + hospital_, data = dt)
+  ln8isochem_100mlr_visit<- lm(ln8iso_chem_sg  ~ lnBDE100+ parity + mat_age + ppbmi + mat_educ + hospital_, data = dt)
+  ln8isochem_153mlr_visit<- lm(ln8iso_chem_sg  ~ lnBDE153  + parity + mat_age + ppbmi + mat_educ + hospital_, data = dt)
+
+  bde47_8isochem_output<-cbind(round(ln8isochem_47mlr_visit$coefficients,2)[2],round(confint(ln8isochem_47mlr_visit),2)[2],round(confint(ln8isochem_47mlr_visit),2)[11])
+  bde99_8isochem_output<-cbind(round(ln8isochem_99mlr_visit$coefficients,2)[2],round(confint(ln8isochem_99mlr_visit),2)[2],round(confint(ln8isochem_99mlr_visit),2)[11])
+  bde100_8isochem_output<-cbind(round(ln8isochem_100mlr_visit$coefficients,2)[2],round(confint(ln8isochem_100mlr_visit),2)[2],round(confint(ln8isochem_100mlr_visit),2)[11])
+  bde153_8isochem_output<-cbind(round(ln8isochem_153mlr_visit$coefficients,2)[2],round(confint(ln8isochem_153mlr_visit),2)[2],round(confint(ln8isochem_153mlr_visit),2)[11])
+
+
+
+  ln8isoenz_47mlr_visit<-  lm(ln8iso_enz_sg  ~ lnBDE47 + parity + mat_age + ppbmi + mat_educ + hospital_, data = dt)
+  ln8isoenz_99mlr_visit<- lm(ln8iso_enz_sg  ~ lnBDE99 + parity + mat_age + ppbmi + mat_educ + hospital_, data = dt)
+  ln8isoenz_100mlr_visit<- lm(ln8iso_enz_sg  ~ lnBDE100+ parity + mat_age + ppbmi + mat_educ + hospital_, data = dt)
+  ln8isoenz_153mlr_visit<- lm(ln8iso_enz_sg  ~ lnBDE153  + parity + mat_age + ppbmi + mat_educ + hospital_, data = dt)
+
+  bde47_8isoenz_output<-cbind(round(ln8isoenz_47mlr_visit$coefficients,2)[2],round(confint(ln8isoenz_47mlr_visit),2)[2],round(confint(ln8isoenz_47mlr_visit),2)[11])
+  bde99_8isoenz_output<-cbind(round(ln8isoenz_99mlr_visit$coefficients,2)[2],round(confint(ln8isoenz_99mlr_visit),2)[2],round(confint(ln8isoenz_99mlr_visit),2)[11])
+  bde100_8isoenz_output<-cbind(round(ln8isoenz_100mlr_visit$coefficients,2)[2],round(confint(ln8isoenz_100mlr_visit),2)[2],round(confint(ln8isoenz_100mlr_visit),2)[11])
+  bde153_8isoenz_output<-cbind(round(ln8isoenz_153mlr_visit$coefficients,2)[2],round(confint(ln8isoenz_153mlr_visit),2)[2],round(confint(ln8isoenz_153mlr_visit),2)[11])
+
+
+
+  lnpgf_47mlr_visit<- lm(lnpgf_sg  ~ lnBDE47 + parity + mat_age + ppbmi + mat_educ + hospital_, data = dt)
+  lnpgf_99mlr_visit<- lm(lnpgf_sg  ~ lnBDE99 + parity + mat_age + ppbmi + mat_educ + hospital_, data = dt)
+  lnpgf_100mlr_visit<- lm(lnpgf_sg  ~ lnBDE100+ parity + mat_age + ppbmi + mat_educ + hospital_, data = dt)
+  lnpgf_153mlr_visit<-  lm(lnpgf_sg  ~ lnBDE153  + parity + mat_age + ppbmi + mat_educ + hospital_, data = dt)
+
+  bde47_pgf_output<-cbind(round(lnpgf_47mlr_visit$coefficients,2)[2],round(confint(lnpgf_47mlr_visit),2)[2],round(confint(lnpgf_47mlr_visit),2)[11])
+  bde99_pgf_output<-cbind(round(lnpgf_99mlr_visit$coefficients,2)[2],round(confint(lnpgf_99mlr_visit),2)[2],round(confint(lnpgf_99mlr_visit),2)[11])
+  bde100_pgf_output<-cbind(round(lnpgf_100mlr_visit$coefficients,2)[2],round(confint(lnpgf_100mlr_visit),2)[2],round(confint(lnpgf_100mlr_visit),2)[11])
+  bde153_pgf_output<-cbind(round(lnpgf_153mlr_visit$coefficients,2)[2],round(confint(lnpgf_153mlr_visit),2)[2],round(confint(lnpgf_153mlr_visit),2)[11])
+
+  adj.models<-rbind(bde47_8iso_output, bde99_8iso_output, bde100_8iso_output, bde153_8iso_output,
+                    bde47_8isom_output, bde99_8isom_output, bde100_8isom_output, bde153_8isom_output,
+                    bde47_8isomnew_output, bde99_8isomnew_output, bde100_8isomnew_output, bde153_8isomnew_output,
+                    bde47_8isochem_output, bde99_8isochem_output, bde100_8isochem_output, bde153_8isochem_output,
+                    bde47_8isoenz_output, bde99_8isoenz_output, bde100_8isoenz_output, bde153_8isoenz_output,
+                    bde47_pgf_output, bde99_pgf_output, bde100_pgf_output, bde153_pgf_output)
+
+
+  rownames(adj.models)<-c( "ln(8iso PGF2a) and BDE 47", "ln(8iso PGF2a) and BDE 99", "ln(8iso PGF2a) and BDE 100", "ln(8iso PGF2a) and BDE 153",
+                           "ln(8iso PGF2a metabolite) and BDE 47", "ln(8iso PGF2a metabolite) and BDE 99", "ln(8iso PGF2ametabolite) and BDE 100", "ln(8iso PGF2a metabolite) and BDE 153",
+                           "ln(8iso PGF2a metabolite new) and BDE 47", "ln(8iso PGF2a metabolite new) and BDE 99", "ln(8iso PGF2ametabolite new) and BDE 100", "ln(8iso PGF2a metabolite new) and BDE 153",
+                           "ln(8iso PGF2a chemcial fraction) and BDE 47", "ln(8iso PGF2a chemcial fraction) and BDE 99", "ln(8iso PGF2a chemcial fraction) and BDE 100", "ln(8iso PGF2a chemcial fraction) and BDE 153",
+                           "ln(8iso PGF2a enzymatic fraction) and BDE 47", "ln(8iso PGF2a enzymatic fraction) and BDE 99", "ln(8iso PGF2a enzymatic fraction) and BDE 100", "ln(8iso PGF2a enzymatic fraction) and BDE 153",
+                           "ln(PGF2a) and BDE 47", "ln(PGF2a) and BDE 99", "ln(PGF2a) and BDE 100", "ln(PGF2a) and BDE 153")
+
+  colnames(adj.models)<-c("Beta", "LCL", "UCL")
+
+  View(adj.models)
+  clipr::write_clip(adj.models)
+}
+
+#   Visit 2
+adj.oxi.pbdes.forest <- adj.linear.models.plot(dt=oxi_pbde_covars_visit2)
+adj.oxi.pbdes.forest<- as.data.frame(adj.oxi.pbdes.forest)
+adj.oxi.pbdes.forest$pbde<-c(rep(c("BDE 47", "BDE 99", "BDE 100", "BDE 153"), 6))
+adj.oxi.pbdes.forest$oxi<- c(rep("ln(8-iso PGF2a)", 4),
+                             rep("ln(2,3-dinor-5,6-dihydro-8-iso-PGF2α)", 4),
+                             rep("ln(2,3-dinor-8-iso-PGF2α)", 4),
+                             rep("ln(8-iso PGF2a chemical fraction)", 4),
+                             rep("ln(8-iso PGF2a enzymatic fraction)", 4),
+                             rep("ln(PGF2a)", 4))
+
+adj.oxi.pbdes.forest$visit <- c(rep("Visit 2", 24))
+
+
+#Visit 3
+adj.oxi.pbdes.forest_3 <- adj.linear.models.plot(dt=oxi_pbde_covars_visit3)
+adj.oxi.pbdes.forest_3 <- as.data.frame(adj.oxi.pbdes.forest_3)
+adj.oxi.pbdes.forest_3$pbde<-c(rep(c("BDE 47", "BDE 99", "BDE 100", "BDE 153"), 6))
+adj.oxi.pbdes.forest_3$oxi<- c(rep("ln(8-iso PGF2a)", 4),
+                               rep("ln(2,3-dinor-5,6-dihydro-8-iso-PGF2α)", 4),
+                               rep("ln(2,3-dinor-8-iso-PGF2α)", 4),
+                               rep("ln(8-iso PGF2a chemical fraction)", 4),
+                               rep("ln(8-iso PGF2a enzymatic fraction)", 4),
+                               rep("ln(PGF2a)", 4))
+
+adj.oxi.pbdes.forest_3$visit <- c(rep("Visit 3", 24))
+
+mlr_forest<- rbind(mlr.forest, adj.oxi.pbdes.forest, adj.oxi.pbdes.forest_3)
+
+#change class
+mlr_forest$Beta <- as.numeric(mlr_forest$Beta)
+mlr_forest$LCL <- as.numeric(mlr_forest$LCL)
+mlr_forest$UCL <- as.numeric(mlr_forest$UCL)
+
+mlr_forest <- mlr_forest %>% arrange(desc(oxi), desc(pbde), desc(visit))
+mlr_forest$oxi_visit = paste(mlr_forest$oxi,": ",mlr_forest$pbde)
+mlr_forest <- mlr_forest %>% arrange(desc(oxi_visit))
+
+# Change name:
+mlr_forest$visit <- str_replace_all( mlr_forest$visit, "Visit", 'Trimester')
+label(mlr_forest$visit) <- "Trimester"
+```
+
+
+## 5 Mixture Analysis: QGCOMP 
+This code produced: 
+- Figure 1. Associations between serum levels of polybrominated diphenyl ethers (ng/g lipid) and urinary levels of specific gravity corrected oxidative stress biomarkers (ng/mL) during pregnancy, estimated using quantile g-computation and linear regression in the Chemicals in Our Bodies cohort, 2014-2018. 
+- Figure S4. Positive and negative weights representing the partial effects of serum polybrominated diphenyl ethers (ng/g lipid) on individual urinary oxidative stress biomarkers (ng/mL) averaged across pregnancy, estimated using quantile g-computation (N=201) in the Chemicals in Our Bodies cohort, 2014-2018. 
+- Figure S5. Positive and negative weights representing the partial effects of serum polybrominated diphenyl ethers (ng/g lipid) on individual urinary oxidative stress biomarkers (ng/mL) at trimester 2, estimated using quantile g-computation (N=199) in the Chemicals in Our Bodies cohort, 2014-2018. 
+- Figure S6. Positive and negative weights representing the partial effects of serum polybrominated diphenyl ethers (ng/g lipid) on individual urinary oxidative stress biomarkers (ng/mL) at trimester 3, estimated using quantile g-computation (N=109) in the Chemicals in Our Bodies cohort, 2014-2018. 
+- 
+```{r qgcomp}
+#### Quantile g-comp with complete dataset
+## average 
+# remember `pbdes` was a vector with saved names: "lnBDE47"  "lnBDE99"  "lnBDE100" "lnBDE153"
+
+qgcomp_summary_comp= NULL
+for(i in (oxi_pbde_covars_complete[70:75])) {
+  q_gcomp <-qgcomp.noboot( i ~ parity + mat_age + ppbmi + mat_educ + hospital + lnBDE47 +  lnBDE99 + lnBDE100 + lnBDE153,
+                          expnms=pbdes,
+                          oxi_pbde_covars_complete,
+                          family=gaussian(),
+                          q=4)
+
+  #q_gcomp
+  plot(q_gcomp)
+
+  # Output results from mixture
+  psi<-round(q_gcomp$psi,2) # extract overall mixture estimate
+  psi.ci.ll<-round(q_gcomp$ci.coef,2)[2] #extract CI for mixture
+  psi.ci.ul<-round(q_gcomp$ci.coef,2)[4] #extract CI for mixture
+  psi.ci<-paste0("(",psi.ci.ll,", ",psi.ci.ul,")") #extract CI for mixture
+  pos.psi<-round(q_gcomp$pos.psi,2) #extract sum of positive weights for mixture
+  neg.psi<-round(q_gcomp$neg.psi,2) #extract sum of negative weights for mixture
+
+  qgcomp_summary_comp<-rbind(qgcomp_summary_comp, cbind(psi,psi.ci,pos.psi,neg.psi)) #combine
+  colnames(qgcomp_summary_comp)<-c("Psi","Psi CI","Positive Weight","Negative Weight")
+}
+
+rownames(qgcomp_summary_comp)<- c("Mixutre Effect on ln(8-iso PGF2a)",
+                                 "Mixutre Effect on ln(8-iso PGF2a metabolite)",
+                                 "Mixutre Effect on ln(8-iso PGF2a metabolite new)",
+                                 "Mixutre Effect on ln(8-iso PGF2a chemical fraction)",
+                                 "Mixutre Effect on ln(8-iso PGF2a enzymatic fraction)",
+                                 "Mixutre Effect on ln(PGF2a)")
+
+as.data.frame(qgcomp_summary_comp)%>% kbl(caption = "Table 1: Summary of Quantile g-computation models for each Oxidative Stress Biomarker") %>% kable_classic(full_width = T, html_font= "Times New Roman") 
+
+# Forest Plot for complete Qgcomp
+qgcomp_forest<- as.data.frame(qgcomp_summary_comp)
+   # extract the point esitmates and 95% CIs
+qgcomp_forest[c('LCL', 'UCL')] <- str_split_fixed(qgcomp_forest$`Psi CI`, ',', 2)
+qgcomp_forest$LCL = sub("\\(", "", qgcomp_forest$LCL)
+qgcomp_forest$UCL = sub("\\)", "", qgcomp_forest$UCL)
+   # extract the labels
+qgcomp_forest$labels <- c("ln(8-iso PGF2a)",
+                            "ln(2,3-dinor-5,6-dihydro-8-iso-PGF2α)",
+                            "ln(2,3-dinor-8-iso-PGF2α)",
+                            "ln(8-iso PGF2a chemical fraction)",
+                            "ln(8-iso PGF2a enzymatic fraction)",
+                            "ln(PGF2a)")
+
+
+
+## Visit 2
+oxi_pbde_covars_v2_complete<- oxi_pbde_covars_visit2 %>% drop_na(c("parity", "mat_age", "ppbmi", "mat_educ", "hospital_",
+                                                                   "lnBDE47" ,  "lnBDE99" ,  "lnBDE100" , "lnBDE153",
+                                                                   "ln8iso_sg", "ln8isom_sg", "ln8isom_new_sg", "ln8iso_chem_sg","ln8iso_enz_sg",
+                                                                   "lnpgf_sg"))
+qgcomp_v2_summary_comp= NULL
+for(i in (oxi_pbde_covars_v2_complete[3:8])) {
+  q_gcomp <-qgcomp.noboot(i  ~ parity + mat_age + ppbmi + mat_educ + hospital_+ lnBDE47 +  lnBDE99 + lnBDE100 + lnBDE153,
+                          expnms=pbdes,
+                          oxi_pbde_covars_v2_complete,
+                          family=gaussian(),
+                          q=4)
+
+  #q_gcomp
+  plot(q_gcomp)
+
+  # Output results from mixture
+  psi<-round(q_gcomp$psi,2) # extract overall mixture estimate
+  psi.ci.ll<-round(q_gcomp$ci.coef,2)[2] #extract CI for mixture
+  psi.ci.ul<-round(q_gcomp$ci.coef,2)[4] #extract CI for mixture
+  psi.ci<-paste0("(",psi.ci.ll,", ",psi.ci.ul,")") #extract CI for mixture
+  pos.psi<-round(q_gcomp$pos.psi,2) #extract sum of positive weights for mixture
+  neg.psi<-round(q_gcomp$neg.psi,2) #extract sum of negative weights for mixture
+
+  qgcomp_v2_summary_comp<-rbind(qgcomp_v2_summary_comp, cbind(psi,psi.ci,pos.psi,neg.psi)) #combine
+  colnames(qgcomp_v2_summary_comp)<-c("Psi","Psi CI","Positive Weight","Negative Weight")
+}
+
+rownames(qgcomp_v2_summary_comp)<- c("Mixutre Effect on ln(8-iso PGF2a)",
+                                     "Mixutre Effect on ln(8-iso PGF2a metabolite)",
+                                     "Mixutre Effect on ln(8-iso PGF2a metabolite new)",
+                                     "Mixutre Effect on ln(8-iso PGF2a chemical fraction)",
+                                     "Mixutre Effect on ln(8-iso PGF2a enzymatic fraction)",
+                                     "Mixutre Effect on ln(PGF2a)")
+
+as.data.frame(qgcomp_v2_summary_comp)%>% kbl(caption = "Supplementary Table X: Summary of Quantile g-computation models for each Oxidative Stress Biomarker as per Visit 2") %>% kable_classic(full_width = T, html_font= "Times New Roman")
+
+## Visit 3
+oxi_pbde_covars_v3_complete<- oxi_pbde_covars_visit3 %>% drop_na(c("parity", "mat_age", "ppbmi", "mat_educ", "hospital_",
+                                                                   "lnBDE47" ,  "lnBDE99" ,  "lnBDE100" , "lnBDE153",
+                                                                   "ln8iso_sg", "ln8isom_sg", "ln8isom_new_sg", "ln8iso_chem_sg","ln8iso_enz_sg",
+                                                                   "lnpgf_sg"))
+qgcomp_v3_summary_comp= NULL
+for(i in (oxi_pbde_covars_v3_complete[3:8])) {
+  q_gcomp <-qgcomp.noboot(i ~ parity + mat_age + ppbmi + mat_educ +  hospital_ + lnBDE47 +  lnBDE99 + lnBDE100 + lnBDE153,
+                          expnms=pbdes,
+                          oxi_pbde_covars_v3_complete,
+                          family=gaussian(),
+                          q=4)
+
+  #q_gcomp
+  print(plot(q_gcomp))
+
+  # Output results from mixture
+  psi<-round(q_gcomp$psi,2) # extract overall mixture estimate
+  psi.ci.ll<-round(q_gcomp$ci.coef,2)[2] #extract CI for mixture
+  psi.ci.ul<-round(q_gcomp$ci.coef,2)[4] #extract CI for mixture
+  psi.ci<-paste0("(",psi.ci.ll,", ",psi.ci.ul,")") #extract CI for mixture
+  pos.psi<-round(q_gcomp$pos.psi,2) #extract sum of positive weights for mixture
+  neg.psi<-round(q_gcomp$neg.psi,2) #extract sum of negative weights for mixture
+
+  qgcomp_v3_summary_comp_check<-rbind(qgcomp_v3_summary_comp_check, cbind(psi,psi.ci,pos.psi,neg.psi)) #combine
+  colnames(qgcomp_v3_summary_comp_check)<-c("Psi","Psi CI","Positive Weight","Negative Weight")
+}
+
+rownames(qgcomp_v3_summary_comp)<- c("Mixutre Effect on ln(8-iso PGF2a)",
+                                     "Mixutre Effect on ln(8-iso PGF2a metabolite)",
+                                     "Mixutre Effect on ln(8-iso PGF2a metabolite new)",
+                                     "Mixutre Effect on ln(8-iso PGF2a chemical fraction)",
+                                     "Mixutre Effect on ln(8-iso PGF2a enzymatic fraction)",
+                                     "Mixutre Effect on ln(PGF2a)")
+
+as.data.frame(qgcomp_v3_summary_comp)%>% kbl(caption = "Supplementary Table X: Summary of Quantile g-computation models for each Oxidative Stress Biomarker as per Visit 3") %>% kable_classic(full_width = T, html_font= "Times New Roman") 
+
+
+# Forest Plot for complete MLRs + Qgcomp, geometric mean + visit 2 + visit 3
+qgcomp_forest<- as.data.frame(rbind(qgcomp_summary_comp, qgcomp_v2_summary_comp, qgcomp_v3_summary_comp))
+# extract the point esitmates and 95% CIs
+qgcomp_forest[c('LCL', 'UCL')] <- str_split_fixed(qgcomp_forest$`Psi CI`, ',', 2)
+qgcomp_forest$LCL = sub("\\(", "", qgcomp_forest$LCL)
+qgcomp_forest$UCL = sub("\\)", "", qgcomp_forest$UCL)
+# extract the labels
+qgcomp_forest$labels <- c(rep(c("ln(8-iso PGF2a)",
+                                "ln(2,3-dinor-5,6-dihydro-8-iso-PGF2α)",
+                                "ln(2,3-dinor-8-iso-PGF2α)",
+                                "ln(8-iso PGF2a chemical fraction)",
+                                "ln(8-iso PGF2a enzymatic fraction)",
+                                "ln(PGF2a)"),3))
+
+
+qgcomp_forest$modeltype <- c(rep("Geo. Mean", 6), rep("Visit 2", 6), rep("Visit 3", 6))
+qgcomp_forest <- qgcomp_forest %>%   arrange(desc(labels), desc(modeltype))
+
+
+# prep dataframes so that they look similar before you merge them 
+qgcomp_forest_try<- qgcomp_forest %>% select(Psi, LCL, UCL, labels, modeltype) %>%  mutate(pbde = "Quantile g-computation") %>%  rename( "Beta" = Psi, 
+                                                                                                                                         "visit" = modeltype, 
+                                                                                                                                         "oxi"  = labels) 
+qgcomp_forest_try <- qgcomp_forest_try[, c(1, 2, 3, 6, 4, 5)] # order them to make sure that the columns are matching. 
+# Change name: 
+qgcomp_forest_try$visit <- str_replace_all( qgcomp_forest_try$visit, "Visit", 'Trimester')
+qgcomp_forest_try$visit <- str_replace_all( qgcomp_forest_try$visit, "Geo. Mean", 'Geom Mean')
+label(qgcomp_forest_try$visit) <- "Trimester"
+
+mlr_forest_try<- mlr_forest %>%  select(-oxi_visit)
+
+# merge the MLR and qgcomp data frames
+try<- rbind(mlr_forest_try, qgcomp_forest_try)
+try$oxi <- str_remove_all(try$oxi, "^ln|\\)|\\(")
+try$oxi <- str_replace_all(try$oxi, "PGF2a", "PGF2α")
+
+try <- within(try, oxi <- factor(oxi, levels=c( "8-iso PGF2α", "2,3-dinor-5,6-dihydro-8-iso-PGF2α","2,3-dinor-8-iso-PGF2α", 
+                                                "PGF2α" , "8-iso PGF2α enzymatic fraction", "8-iso PGF2α chemical fraction")))
+
+
+try_plot<- ggplot(try, # %>%  filter(oxi == "8-iso PGF2α chemical fraction"),
+                  aes(x = as.double(Beta), xmin = as.double(LCL), xmax = as.double(UCL),
+                      y = pbde, color = as.factor(visit))) +
+  
+  geom_vline(xintercept = 0, linetype = "longdash", position=position_dodge(width = 0.5)) +
+  geom_errorbarh(height = 0.2, lwd=1.05, position=position_dodge(width = 0.5)) +
+  geom_point(size = 2, shape = "circle", stroke = 0.5, position=position_dodge(width = 0.5)) +
+  xlim(c(-0.9, 0.9))+
+  # geom_text(aes(y=as.double(Psi), label=as.double(Psi)), position = position_dodge2(width=5), vjust = -10) +
+  #  Un-comment the above line to check the effect estimates. The colors and effect estimates should match up with the tab_model() estimates from above.
+  xlab("Effect Estimate (95% CI)") +
+  ylab(" ") + 
+  labs(color = "Trimester")+
+  scale_color_viridis(discrete=TRUE, option="D", labels = c("Average", "Trimester 2", "Trimester 3")) +
+  facet_wrap(.~oxi) + #,strip.position="left", nrow=72, scales = "free_y")+
+ # ggtitle("Figure 1. Multivariable Model and Quantile G-Computation for overall assiociation of each PBDEs on \n Oxidative Stress and by Visit + hospital, CiOB (2014-2018)")+
+  theme_bw() +
+  theme(panel.border = element_blank(),  
+        strip.text = element_text(size = 9),
+        legend.position="none", 
+       legend.title =  element_text(size = 13), 
+       legend.text = element_text(size = 13), 
+        axis.title.x = element_text(size=12, face="bold", colour = "black"),
+       axis.text.x = element_text(size=12, colour = "black"),
+        axis.text.y = element_text(size=12, face="bold", colour = "black")) #  For bold axis, include the following in theme(): axis.title.x = element_text(size=9, face="bold", colour = "black"), axis.text.y = element_text(size=9, face="bold", colour = "black")
+
+try_plot
+ggsave(file = "Figure 1_format.pdf", width = 9, height = 6,units = "in" )
+
+```
+
+
+## 6 Mixtures Analysis: BKMR 
+This code produced: 
+- Figure 2. Cumulative effect and 95% credible interval for the associations between the serum PBDE mixture (ng/g lipid) and urinary levels of specific gravity corrected oxidative stress biomarkers, estimated using BKMR in the Chemicals in Our Bodies cohort, 2014-18. 
+- Figure S7. Univariate exposure–response functions and 95 % credible intervals for the change in 8-iso PGF2α (ng/mL) corrected with specific gravity resulting from individual PBDEs (ng/g lipid) while holding all the remaining exposures in the mixture fixed at their median concentration, estimated using Bayesian kernel machine regression (BKMR).  
+- Figure S8. Univariate exposure–response functions and 95 % credible intervals for the change in 2,3-dinor-5,6-dihydro-8-iso-PGF2α (ng/mL) corrected with specific gravity resulting from individual PBDEs (ng/g lipid) while holding all the remaining exposures in the mixture fixed at their median concentration, estimated using Bayesian kernel machine regression (BKMR). 
+- Figure S9. Univariate exposure–response functions and 95 % credible intervals for the change in 2,3-dinor-5,6-dihydro-8-iso-PGF2α (ng/mL) corrected with specific gravity resulting from individual PBDEs (ng/g lipid) while holding all the remaining exposures in the mixture fixed at their median concentration, estimated using Bayesian kernel machine regression (BKMR). 
+- Figure S10. Univariate exposure–response functions and 95 % credible intervals for the change in 2,3-dinor-8-iso-PGF2α (ng/mL) corrected with specific gravity resulting from individual PBDEs (ng/g lipid) while holding all the remaining exposures in the mixture fixed at their median concentration, estimated using Bayesian kernel machine regression (BKMR). 
+- Figure S11. Univariate exposure–response functions and 95 % credible intervals for the change in 8-iso PGF2α enzymatic fraction (ng/mL) corrected with specific gravity resulting from individual PBDEs (ng/g lipid) while holding all the remaining exposures in the mixture fixed at their median concentration, estimated using Bayesian kernel machine regression (BKMR). 
+- Figure S12. Univariate exposure–response functions and 95 % credible intervals for the change in 8-iso PGF2α chemical fraction (ng/mL) corrected with specific gravity resulting from individual PBDEs (ng/g lipid) while holding all the remaining exposures in the mixture fixed at their median concentration, estimated using Bayesian kernel machine regression (BKMR). 
+- 
+```{r bkmr}
+# overall 
+bkmr_data <- oxi_pbde_covars_complete
+    ## Create vectors of exposures and covariates
+bkmr_exp<-bkmr_data[c("lnBDE47", "lnBDE99", "lnBDE100", "lnBDE153")]
+
+bkmr_covar<-bkmr_data[c("parity", "mat_age", "ppbmi", "mat_educ", "hospital")]
+
+    ## recode so that BKMR can run using numeric vars
+bkmr_covar$mat_educ <- str_replace_all(bkmr_covar$mat_educ, c("Less than high school education" = "1",
+                                                                        "High education or some college" = "2",
+                                                                        "College degree" = "3",
+                                                                        "Graduate degree"= "4"))
+
+bkmr_covar$parity <- str_replace_all(bkmr_covar$parity, c("No prior births" = "0",
+                                                          "1 or more births"= "1"))
+
+bkmr_covar$hospital <- str_replace_all(bkmr_covar$hospital, c("Mission Bay" = "0",
+                                                          "SFGH"= "1"))
+
+bkmr_covar$parity <- as.numeric(bkmr_covar$parity)
+bkmr_covar$mat_age <- as.numeric(bkmr_covar$mat_age)
+bkmr_covar$ppbmi <- as.numeric(bkmr_covar$ppbmi)
+bkmr_covar$mat_educ <- as.numeric(bkmr_covar$mat_educ)
+bkmr_covar$hospital <- as.numeric(bkmr_covar$hospital)
+
+    ## Rename the variables so that they are nice in the labels for the BKMR plots
+label(bkmr_data$ln8iso_avg)<-"8-iso-PGF2a (ng/mL)"
+label(bkmr_data$ln8isom_avg)<-  "8-iso-PGF2a metabolite (2,3-dinor-5,6-dihydro-8-iso-PGF2α) (ng/mL)"
+label(bkmr_data$ln8isom_new_avg)<- "8-iso-PGF2a metabolite (2,3-dinor-8-iso-PGF2α) (ng/mL)"
+label(bkmr_data$ln8iso_chem_avg)<-"PGF-2a (ng/mL)"
+label(bkmr_data$ln8iso_enz_avg)<-"8-iso-PGF2a chemical fraction (ng/mL)"
+label(bkmr_data$lnpgf_avg)<-"8-iso-PGF2a enzymatic fraction (ng/mL)"
+label(bkmr_exp$lnBDE47)<-"BDE-47 (ng/g lipid)"
+label(bkmr_exp$lnBDE99)<-"BDE-99 (ng/g lipid)"
+label(bkmr_exp$lnBDE100)<-"BDE-100 (ng/g lipid)"
+label(bkmr_exp$lnBDE153)<-"BDE-153 (ng/g lipid)"
+
+## BKMR  for oxi stress
+for(i in bkmr_data[70:75]){
+  set.seed(111)
+  bkmr_8iso <- kmbayes(y = i,
+                       Z = bkmr_exp,
+                       X = bkmr_covar,
+                       iter = 10000, verbose = FALSE, varsel = TRUE,
+                       family='gaussian')
+
+  ## BKMR univariate plot: Create univariate exposure-response function
+  pred.resp.univar <- PredictorResponseUnivar(fit = bkmr_8iso)
+  print(ggplot(pred.resp.univar,
+               aes(x=z, y=est, color=variable, group=variable,
+                   ymin = est - 1.96*se, ymax = est + 1.96*se)) +
+          geom_smooth(stat = "identity") +
+          facet_wrap(~ variable, nrow=2) +
+          ylab(paste0("Difference in ", colnames(i)))+
+          xlab("PBDE")+
+          scale_x_continuous(breaks = c(-6, -3, 0, 3, 6), limits = c(-6, 6)) +
+          scale_y_continuous(breaks = c(-1, -0.5, 0, 0.5, 1), limits = c(-1, 1)) +
+          ggtitle(paste0("C. Univariate Relationship for Predictor-Response ", colnames(i))) +
+          theme_bw())
+
+  ## BKMR bivariate plot: create bivariate exposure-response function
+  pred.resp.bivar <- PredictorResponseBivar(fit = bkmr_8iso, min.plot.dist = 1)
+
+  pred.resp.bivar.levels <- PredictorResponseBivarLevels(
+    pred.resp.df = pred.resp.bivar,
+    Z = as.matrix(bkmr_exp), qs = c(0.25, 0.5, 0.75))
+
+  print(ggplot(pred.resp.bivar.levels, aes(z1, est)) +
+          geom_smooth(aes(col = quantile), stat = "identity") +
+          facet_grid(variable2 ~ variable1) +
+          xlab("PBDEs")+
+          ylab(paste0("Oxidative Stress:", colnames(i)))) +
+    ggtitle(paste0("B. Bivarate exposure-response ", colnames(i)))
+
+  ##table of PIPs
+  ExtractPIPs(bkmr_8iso)
+
+  ##Overall effect of BKMR on to compare the 50th with the 75th percentile of all exposures
+  risk <- OverallRiskSummaries(fit = bkmr_8iso,
+                               y = i,
+                               Z = bkmr_exp,
+                               X = as.matrix(bkmr_covar),
+                               qs = seq(0.25, 0.75, by = 0.05),
+                               q.fixed = 0.5, method = "exact")
+
+  print(ggplot(risk, aes(quantile, est, ymin = est - 1.96*sd, ymax = est + 1.96*sd)) +  geom_pointrange()+
+          ylab(paste0("Difference in " , colnames(i)))+
+          xlab("Percentile of PBDEs Mixture Quantile")+
+          theme_gray(base_size = 14) +
+          geom_hline(yintercept=0, linetype="dashed")+
+          ggtitle(paste0("A. Overall Risk Summaries for ", colnames(i))))
+}
+
+## by visit 2
+bkmr_data_v2 <- oxi_pbde_covars_v2_complete
+## Create vectors of exposures and covariates
+bkmr_exp_v2<-bkmr_data_v2[c("lnBDE47", "lnBDE99", "lnBDE100", "lnBDE153")]
+
+bkmr_covar_v2<-bkmr_data_v2[c("parity", "mat_age", "ppbmi", "mat_educ", "hospital_")]
+
+## recode so that BKMR can run using numeric vars
+bkmr_covar_v2$mat_educ <- str_replace_all(bkmr_covar_v2$mat_educ, c("Less than high school education" = "1",
+                                                                    "High education or some college" = "2",
+                                                                    "College degree" = "3",
+                                                                    "Graduate degree"= "4"))
+
+bkmr_covar_v2$parity <- str_replace_all(bkmr_covar_v2$parity, c("No prior births" = "0",
+                                                                "1 or more births"= "1"))
+
+bkmr_covar_v2$hospital_ <- str_replace_all(bkmr_covar_v2$hospital_, c("Mission Bay" = "0",
+                                                                      "SFGH"= "1"))
+
+bkmr_covar_v2$parity <- as.numeric(bkmr_covar_v2$parity)
+bkmr_covar_v2$mat_age <- as.numeric(bkmr_covar_v2$mat_age)
+bkmr_covar_v2$ppbmi <- as.numeric(bkmr_covar_v2$ppbmi)
+bkmr_covar_v2$mat_educ <- as.numeric(bkmr_covar_v2$mat_educ)
+bkmr_covar_v2$hospital_ <- as.numeric(bkmr_covar_v2$hospital_)
+
+glimpse(bkmr_covar_v2)
+## Rename the variables so that they are nice in the labels for the BKMR plots
+label(bkmr_data_v2$ln8iso_sg)<-"8-iso-PGF2a (ng/mL)"
+label(bkmr_data_v2$ln8isom_sg)<-  "8-iso-PGF2a metabolite (2,3-dinor-5,6-dihydro-8-iso-PGF2α) (ng/mL)"
+label(bkmr_data_v2$ln8isom_new_sg)<- "8-iso-PGF2a metabolite (2,3-dinor-8-iso-PGF2α) (ng/mL)"
+label(bkmr_data_v2$ln8iso_chem_sg)<-"PGF-2a (ng/mL)"
+label(bkmr_data_v2$ln8iso_enz_sg)<-"8-iso-PGF2a chemical fraction (ng/mL)"
+label(bkmr_data_v2$lnpgf_sg)<-"8-iso-PGF2a enzymatic fraction (ng/mL)"
+label(bkmr_exp_v2$lnBDE47)<-"BDE-47 (ng/g lipid)"
+label(bkmr_exp_v2$lnBDE99)<-"BDE-99 (ng/g lipid)"
+label(bkmr_exp_v2$lnBDE100)<-"BDE-100 (ng/g lipid)"
+label(bkmr_exp_v2$lnBDE153)<-"BDE-153 (ng/g lipid)"
+
+## BKMR  for oxi stress visit 2
+for(i in bkmr_data_v2[3:8]){
+  set.seed(111)
+  bkmr_8iso <- kmbayes(y = i,
+                       Z = bkmr_exp_v2,
+                       X = bkmr_covar_v2,
+                       iter = 10000, verbose = FALSE, varsel = TRUE,
+                       family='gaussian')
+
+  ## BKMR univariate plot: Create univariate exposure-response function
+  pred.resp.univar <- PredictorResponseUnivar(fit = bkmr_8iso)
+  # print(ggplot(pred.resp.univar,
+  #              aes(x=z, y=est, color=variable, group=variable,
+  #                  ymin = est - 1.96*se, ymax = est + 1.96*se)) +
+  #         geom_smooth(stat = "identity") +
+  #         facet_wrap(~ variable, nrow=2) +
+  #         ylab(paste0("Difference in ", colnames(i)))+
+  #         xlab("PBDE")+
+  #         scale_x_continuous(breaks = c(-6, -3, 0, 3, 6), limits = c(-6, 6)) +
+  #         scale_y_continuous(breaks = c(-1, -0.5, 0, 0.5, 1), limits = c(-1, 1)) +
+  #         ggtitle(paste0("C. Univariate Relationship for Predictor-Response ", colnames(i))) +
+  #         theme_bw())
+
+  ## BKMR bivariate plot: create bivariate exposure-response function
+  pred.resp.bivar <- PredictorResponseBivar(fit = bkmr_8iso, min.plot.dist = 1)
+
+  pred.resp.bivar.levels <- PredictorResponseBivarLevels(
+    pred.resp.df = pred.resp.bivar,
+    Z = as.matrix(bkmr_exp_v2), qs = c(0.25, 0.5, 0.75))
+
+  # print(ggplot(pred.resp.bivar.levels, aes(z1, est)) +
+  #         geom_smooth(aes(col = quantile), stat = "identity") +
+  #         facet_grid(variable2 ~ variable1) +
+  #         xlab("PBDEs")+
+  #         ylab(paste0("Oxidative Stress:", colnames(i)))) +
+  #   ggtitle(paste0("B. Bivarate exposure-response ", colnames(i)))
+  #
+  ##table of PIPs
+  ExtractPIPs(bkmr_8iso)
+
+  ##Overall effect of BKMR on to compare the 50th with the 75th percentile of all exposures
+  risk <- OverallRiskSummaries(fit = bkmr_8iso,
+                               y = i,
+                               Z = bkmr_exp_v2,
+                               X = as.matrix(bkmr_covar_v2),
+                               qs = seq(0.25, 0.75, by = 0.05),
+                               q.fixed = 0.5, method = "exact")
+
+  print(ggplot(risk, aes(quantile, est, ymin = est - 1.96*sd, ymax = est + 1.96*sd)) +  geom_pointrange()+
+          ylab(paste0("Difference in " , colnames(i)))+
+          xlab("Percentile of PBDEs Mixture Quantile")+
+          theme_gray(base_size = 14) +
+          geom_hline(yintercept=0, linetype="dashed")+
+          ggtitle(paste0("A. Overall Risk Summaries for ", colnames(i))))
+}
+
+
+##by visit 3
+bkmr_data_v3 <- oxi_pbde_covars_v3_complete
+## Create vectors of exposures and covariates
+bkmr_exp_v3<-bkmr_data_v3[c("lnBDE47", "lnBDE99", "lnBDE100", "lnBDE153")]
+
+bkmr_covar_v3<-bkmr_data_v3[c("parity", "mat_age", "ppbmi", "mat_educ", "hospital_")]
+
+## recode so that BKMR can run using numeric vars
+bkmr_covar_v3$mat_educ <- str_replace_all(bkmr_covar_v3$mat_educ, c("Less than high school education" = "1",
+                                                                    "High education or some college" = "2",
+                                                                    "College degree" = "3",
+                                                                    "Graduate degree"= "4"))
+
+bkmr_covar_v3$parity <- str_replace_all(bkmr_covar_v3$parity, c("No prior births" = "0",
+                                                                "1 or more births"= "1"))
+
+bkmr_covar_v3$hospital_ <- str_replace_all(bkmr_covar_v3$hospital_, c("Mission Bay" = "0",
+                                                                      "SFGH"= "1"))
+
+bkmr_covar_v3$parity <- as.numeric(bkmr_covar_v3$parity)
+bkmr_covar_v3$mat_age <- as.numeric(bkmr_covar_v3$mat_age)
+bkmr_covar_v3$ppbmi <- as.numeric(bkmr_covar_v3$ppbmi)
+bkmr_covar_v3$mat_educ <- as.numeric(bkmr_covar_v3$mat_educ)
+bkmr_covar_v3$hospital_ <- as.numeric(bkmr_covar_v3$hospital_)
+
+glimpse(bkmr_covar_v3)
+## Rename the variables so that they are nice in the labels for the BKMR plots
+label(bkmr_data_v3$ln8iso_sg)<-"8-iso-PGF2a (ng/mL)"
+label(bkmr_data_v3$ln8isom_sg)<-  "8-iso-PGF2a metabolite (2,3-dinor-5,6-dihydro-8-iso-PGF2α) (ng/mL)"
+label(bkmr_data_v3$ln8isom_new_sg)<- "8-iso-PGF2a metabolite (2,3-dinor-8-iso-PGF2α) (ng/mL)"
+label(bkmr_data_v3$ln8iso_chem_sg)<-"PGF-2a (ng/mL)"
+label(bkmr_data_v3$ln8iso_enz_sg)<-"8-iso-PGF2a chemical fraction (ng/mL)"
+label(bkmr_data_v3$lnpgf_sg)<-"8-iso-PGF2a enzymatic fraction (ng/mL)"
+label(bkmr_exp_v3$lnBDE47)<-"BDE-47 (ng/g lipid)"
+label(bkmr_exp_v3$lnBDE99)<-"BDE-99 (ng/g lipid)"
+label(bkmr_exp_v3$lnBDE100)<-"BDE-100 (ng/g lipid)"
+label(bkmr_exp_v3$lnBDE153)<-"BDE-153 (ng/g lipid)"
+
+
+## BKMR  for oxi stress
+for(i in bkmr_data_v3[3:8]){
+  set.seed(111)
+  bkmr_8iso <- kmbayes(y = i,
+                       Z = bkmr_exp_v3,
+                       X = bkmr_covar_v3,
+                       iter = 10000, verbose = FALSE, varsel = TRUE,
+                       family='gaussian')
+
+  ## BKMR univariate plot: Create univariate exposure-response function
+  pred.resp.univar <- PredictorResponseUnivar(fit = bkmr_8iso)
+  # print(ggplot(pred.resp.univar,
+  #              aes(x=z, y=est, color=variable, group=variable,
+  #                  ymin = est - 1.96*se, ymax = est + 1.96*se)) +
+  #         geom_smooth(stat = "identity") +
+  #         facet_wrap(~ variable, nrow=2) +
+  #         ylab(paste0("Difference in ", colnames(i)))+
+  #         xlab("PBDE")+
+  #         scale_x_continuous(breaks = c(-6, -3, 0, 3, 6), limits = c(-6, 6)) +
+  #         scale_y_continuous(breaks = c(-1, -0.5, 0, 0.5, 1), limits = c(-1, 1)) +
+  #         ggtitle(paste0("C. Univariate Relationship for Predictor-Response ", colnames(i))) +
+  #         theme_bw())
+
+  ## BKMR bivariate plot: create bivariate exposure-response function
+  pred.resp.bivar <- PredictorResponseBivar(fit = bkmr_8iso, min.plot.dist = 1)
+
+  pred.resp.bivar.levels <- PredictorResponseBivarLevels(
+    pred.resp.df = pred.resp.bivar,
+    Z = as.matrix(bkmr_exp), qs = c(0.25, 0.5, 0.75))
+
+  # print(ggplot(pred.resp.bivar.levels, aes(z1, est)) +
+  #         geom_smooth(aes(col = quantile), stat = "identity") +
+  #         facet_grid(variable2 ~ variable1) +
+  #         xlab("PBDEs")+
+  #         ylab(paste0("Oxidative Stress:", colnames(i)))) +
+  #   ggtitle(paste0("B. Bivarate exposure-response ", colnames(i)))
+  #
+  ##table of PIPs
+  ExtractPIPs(bkmr_8iso)
+
+  ##Overall effect of BKMR on to compare the 50th with the 75th percentile of all exposures
+  risk <- OverallRiskSummaries(fit = bkmr_8iso,
+                               y = i,
+                               Z = bkmr_exp_v3,
+                               X = as.matrix(bkmr_covar_v3),
+                               qs = seq(0.25, 0.75, by = 0.05),
+                               q.fixed = 0.5, method = "exact")
+
+  print(ggplot(risk, aes(quantile, est, ymin = est - 1.96*sd, ymax = est + 1.96*sd)) +  geom_pointrange()+
+          ylab(paste0("Difference in " , colnames(i)))+
+          xlab("Percentile of PBDEs Mixture Quantile")+
+          theme_gray(base_size = 14) +
+          geom_hline(yintercept=0, linetype="dashed")+
+          ggtitle(paste0("A. Overall Risk Summaries for ", colnames(i))))
+}
+
+```
+
+## 7 Senstivity Analysis
+Table S5. Differences in urinary oxidative stress biomarkers (ng/mL) corrected with specific gravity per a one quartile increase in the serum polybrominated diphenyl ethers (ng/g lipid) mixture estimated using quantile g-computation in the Chemicals in Our Bodies cohort, 2014-2018, excluding BDE-100. 
+```{r sens_analysis}
+#### Sensitivity Analysis: BDE 100####
+## quantile g-comp
+pbdes_100 <- c("lnBDE47", "lnBDE99", "lnBDE153")
+
+qgcomp_summary_comp_100= NULL
+for(i in (oxi_pbde_covars_allcomplete[70:75])) {
+  q_gcomp <-qgcomp.noboot(i ~ parity + mat_age + ppbmi + mat_educ + hospital +lnBDE47 +  lnBDE99 + lnBDE153,
+                          expnms=pbdes_100,
+                          oxi_pbde_covars_allcomplete,
+                          family=gaussian(),
+                          q=4)
+
+  #q_gcomp
+  plot(q_gcomp)
+
+  # Output results from mixture
+  psi<-round(q_gcomp$psi,2) # extract overall mixture estimate
+  psi.ci.ll<-round(q_gcomp$ci.coef,2)[2] #extract CI for mixture
+  psi.ci.ul<-round(q_gcomp$ci.coef,2)[4] #extract CI for mixture
+  psi.ci<-paste0("(",psi.ci.ll,", ",psi.ci.ul,")") #extract CI for mixture
+  pos.psi<-round(q_gcomp$pos.psi,2) #extract sum of positive weights for mixture
+  neg.psi<-round(q_gcomp$neg.psi,2) #extract sum of negative weights for mixture
+
+  qgcomp_summary_comp_100<-rbind(qgcomp_summary_comp_100, cbind(psi,psi.ci,pos.psi,neg.psi)) #combine
+  colnames(qgcomp_summary_comp_100)<-c("Psi","Psi CI","Positive Weight","Negative Weight")
+}
+
+rownames(qgcomp_summary_comp_100)<- c("Mixutre Effect on ln(8-iso PGF2a)",
+                                      "Mixutre Effect on ln(8-iso PGF2a metabolite)",
+                                      "Mixutre Effect on ln(8-iso PGF2a metabolite new)",
+                                      "Mixutre Effect on ln(8-iso PGF2a chemical fraction)",
+                                      "Mixutre Effect on ln(8-iso PGF2a enzymatic fraction)",
+                                      "Mixutre Effect on ln(PGF2a)")
+
+as.data.frame(qgcomp_summary_comp_100)%>% kbl(caption = "Table X: Summary of Quantile g-computation models for each Oxidative Stress Biomarker when BDE 100 was excluded") %>% kable_classic(full_width = T, html_font= "Times New Roman") 
+```
+
+
+
+Figure S13. Cumulative effect and 95 % credible intervals of the serum PBDE mixture on individual specific gravity corrected oxidative stress biomarkers, estimated using Bayesian kernel machine regression (BKMR), excluding BDE-100 (N=201). 
+
+```{r bkmr_sens}
+## BKMR
+## Create vectors of exposures and covariates
+bkmr_exp_100<-bkmr_data[c("lnBDE47", "lnBDE99", "lnBDE153")]
+
+## BKMR  for oxi stress
+for(i in bkmr_data[70:75]){
+  set.seed(111)
+  bkmr_8iso <- kmbayes(y = i,
+                       Z = bkmr_exp_100,
+                       X = bkmr_covar,
+                       iter = 10000, verbose = FALSE, varsel = TRUE,
+                       family='gaussian')
+
+  # ## BKMR univariate plot: Create univariate exposure-response function
+  # pred.resp.univar <- PredictorResponseUnivar(fit = bkmr_8iso)
+  # print(ggplot(pred.resp.univar,
+  #              aes(x=z, y=est, color=variable, group=variable,
+  #                  ymin = est - 1.96*se, ymax = est + 1.96*se)) +
+  #         geom_smooth(stat = "identity") +
+  #         facet_wrap(~ variable, nrow=2) +
+  #         ylab(paste0("Difference in ", colnames(i)))+
+  #         xlab("PBDE")+
+  #         scale_x_continuous(breaks = c(-6, -3, 0, 3, 6), limits = c(-6, 6)) +
+  #         scale_y_continuous(breaks = c(-1, -0.5, 0, 0.5, 1), limits = c(-1, 1)) +
+  #         ggtitle(paste0("C. Univariate Relationship for Predictor-Response ", colnames(i))) +
+  #         theme_bw())
+  #
+  # ## BKMR bivariate plot: create bivariate exposure-response function
+  # pred.resp.bivar <- PredictorResponseBivar(fit = bkmr_8iso, min.plot.dist = 1)
+  #
+  # pred.resp.bivar.levels <- PredictorResponseBivarLevels(
+  #   pred.resp.df = pred.resp.bivar,
+  #   Z = as.matrix(bkmr_exp_100), qs = c(0.25, 0.5, 0.75))
+  #
+  # print(ggplot(pred.resp.bivar.levels, aes(z1, est)) +
+  #         geom_smooth(aes(col = quantile), stat = "identity") +
+  #         facet_grid(variable2 ~ variable1) +
+  #         xlab("PBDEs")+
+  #         ylab(paste0("Oxidative Stress:", colnames(i)))) +
+  #   ggtitle(paste0("B. Bivarate exposure-response ", colnames(i)))
+  #
+  # ##table of PIPs
+  # ExtractPIPs(bkmr_8iso)
+  #
+  ##Overall effect of BKMR on to compare the 50th with the 75th percentile of all exposures
+  risk <- OverallRiskSummaries(fit = bkmr_8iso,
+                               y = i,
+                               Z = bkmr_exp_100,
+                               X = as.matrix(bkmr_covar),
+                               qs = seq(0.25, 0.75, by = 0.05),
+                               q.fixed = 0.5, method = "exact")
+
+  print(ggplot(risk, aes(quantile, est, ymin = est - 1.96*sd, ymax = est + 1.96*sd)) +  geom_pointrange()+
+          ylab(paste0("Difference in " , colnames(i)))+
+          xlab("Percentile of PBDEs Mixture Quantile")+
+          theme_gray(base_size = 14) +
+          geom_hline(yintercept=0, linetype="dashed")+
+          ggtitle(paste0("A. Overall Risk Summaries for ", colnames(i))))
+}
+```
