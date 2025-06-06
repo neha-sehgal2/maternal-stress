@@ -1,4 +1,4 @@
-Psychosocial stress and associations with inflammation in mid-gestation maternal, fetal, and placental tissue
+## *Psychosocial stress and associations with inflammation in mid-gestation maternal, fetal, and placental tissue*
 
 DOI: 10.1016/j.reprotox.2025.108922
 
