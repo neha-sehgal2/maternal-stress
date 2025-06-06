@@ -1,0 +1,9 @@
+## Mixture effects of prenatal exposure to polybrominated diphenyl ethers on urinary oxidative stress biomarkers in the Chemicals in Our Bodies cohort
+
+(DOI) 10.1093/aje/kwae113
+
+PMID: 38879743 
+
+### Abstract
+
+Polybrominated diphenyl ether (PBDE) exposure is associated with preterm birth. Laboratory studies suggest that PBDEs lead to elevated oxidative stress, a known contributor to preterm birth, according to epidemiologic studies. We hypothesized that elevated levels of PBDEs would be associated with increased oxidative stress during human pregnancy. Participants in this analysis were enrolled in the Chemicals in Our Bodies cohort and resided in the San Francisco Bay Area (n = 201). Four PBDEs (BDE-47, -99, -100, and -153) were measured in second-trimester serum samples. Urinary oxidative stress biomarkers were measured at 2 time points (second and third trimesters) and included 8-isoprostane-prostaglandin-F2α (8-iso-PGF2α), 2,3-dinor-5,6-dihydro-8-iso-PGF2α, 2,3-dinor-8-iso-PGF2α, and prostaglandin-F2α (PGF2α). Associations between individual PBDEs and oxidative stress biomarkers (averaged and trimester specific) were examined using linear regression. Quantile g-computation and Bayesian kernel machine regression (BKMR) were used to assess cumulative effects of PBDEs. Quantile g-computation showed that higher concentrations of PBDEs were associated with increasing 8-iso-PGF2α, 2,3-dinor-8-iso-PGF2α, and PGF2α. Associations were greatest in magnitude for second-trimester levels of 2,3-dinor-8-iso-PGF2α (mean change per quartile increase = 0.25, 95% CI, 0.09-0.41). Associations were similar using BKMR and linear regression. Our findings suggest oxidative stress may be a plausible biological pathway by which PBDE exposure might lead to preterm birth. This article is part of a Special Collection on Environmental Epidemiology.
