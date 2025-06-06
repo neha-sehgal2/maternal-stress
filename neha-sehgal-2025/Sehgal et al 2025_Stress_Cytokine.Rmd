@@ -60,7 +60,7 @@ concentrations as obtained from the lab and is also, imputed with the LOD/sqrt(2
 # load("WOC_covar_and_stress_data_05022024.csv")
 ```
 
-## 2 Sociodemographics of WOC
+## 2 Sociodemographics
 
 **Table 1.** Summary of sociodemographic characteristics and psychosocial stressors among pregnant persons undergoing
 elective second trimester pregnancy terminations in San Francisco, California (2010-2016).
@@ -78,13 +78,6 @@ table1(~job.strain + pss.4.cat + sle.cat + social.support.cat, data = cytokine_s
 
 # add employment 
 job_employ<- cytokine_stress_covars %>%  select(ppt_id, job.strain, employed)
-
-cytokine_stress_covars <- cytokine_stress_covars %>%  mutate(job_employ = case_when(job.strain == "1" & employed == "Employed" ~ "Employed and Job Strain", 
-                                                                                    job.strain == "1" & employed == "Unemployed" ~ "Unemployed and Job Strain",
-                                                                                    job.strain == "0" & employed == "Employed" ~ "Employed and No Job Strain", 
-                                                                                    job.strain == "0" & employed == "Unemployed" ~ "Unemployed and No Job Strain",
-                                                                                    is.na(job.strain) == TRUE & employed == "Unemployed" ~ "Unemployed and No Job Strain"))
-table1(~job_employ, cytokine_stress_covars)
 
 cytokine_stress_covars <- cytokine_stress_covars %>%  mutate(job_employ_fact = case_when(job.strain == "1" & employed == "Employed" ~ 2, 
                                                                                    # job.strain == "1" & employed == "Unemployed" ~ "Unemployed and Job Strain",
@@ -231,10 +224,6 @@ measured in maternal blood, cord blood and placenta stratified by psychosocial s
 elective second trimester pregnancy terminations in San Francisco, California (2010-2016).
 
 ```{r biomarker_correlation}
-
-plot_correlation(cytokine_stress_covars[,c(2:61, 144)], cor_args = list("use" = "pairwise.complete.obs"))
-
-
 # by stressors
      # job strain
 corr_job <- cytokine_stress_covars %>% filter(job.strain == 0)
